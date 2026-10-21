@@ -1,0 +1,91 @@
+.editor {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  flex: 1;
+  text-align: left;
+}
+
+.panel {
+  padding: 16px;
+  border-inline: 1px solid var(--border);
+}
+
+.panel h2 {
+  font-size: 16px;
+}
+
+.canvas {
+  padding: 24px;
+  background: var(--code-bg);
+}
+
+.canvas-page {
+  min-height: 480px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+}
+
+.over {
+  outline: 2px solid var(--accent);
+}
+
+.hint {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.palette-item {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.palette-item.dragging {
+  opacity: 0.5;
+}
+
+.node {
+  margin-bottom: 8px;
+  padding: 4px;
+  border: 1px solid transparent;
+}
+
+.node.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.pv-container {
+  min-height: 48px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+}
+
+.pv-container-body {
+  display: flex;
+}
+
+.pv-button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.pv-button.pv-secondary {
+  background: transparent;
+  color: var(--accent);
+}
