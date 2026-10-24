@@ -1,17 +1,18 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ConfigModule } from './config/config.module';
-import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
-import { RateLimitGuard } from './common/guards/rate-limit.guard';
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { RolesGuard } from './common/guards/roles.guard';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
-import { ResponseInterceptor } from './common/interceptors/response.interceptor';
-import { PrismaModule } from './prisma/prisma.module';
-import { RedisModule } from './redis/redis.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { UsersModule } from './modules/users/users.module';
-import { ProjectsModule } from './modules/projects/projects.module';
+import { ConfigModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/config.module.js';
+import { RequestLoggerMiddleware } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/middleware/request-logger.middleware.js';
+import { RateLimitGuard } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/guards/rate-limit.guard.js';
+import { JwtAuthGuard } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/guards/roles.guard.js';
+import { AllExceptionsFilter } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/filters/all-exceptions.filter.js';
+import { ResponseInterceptor } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/interceptors/response.interceptor.js';
+import { PrismaModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/prisma/prisma.module.js';
+import { RedisModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/redis/redis.module.js';
+import { AuthModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/modules/auth/auth.module.js';
+import { UsersModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/modules/users/users.module.js';
+import { ProjectsModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/modules/projects/projects.module.js';
+import { GenerateModule } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/modules/generate/generate.module.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
     UsersModule,
     AuthModule,
     ProjectsModule,
+    GenerateModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

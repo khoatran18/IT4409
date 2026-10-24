@@ -4,10 +4,12 @@ import {
   ValidationError,
   ValidationPipe,
 } from '@nestjs/common';
+import { parseTrustProxy } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/env.js';
+import { ConfigService } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/config.service.js';
 import {
   ApiException,
   ErrorDetail,
-} from './common/filters/all-exceptions.filter';
+} from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/filters/all-exceptions.filter.js';
 
 function flatten(errors: ValidationError[], prefix = ''): ErrorDetail[] {
   return errors.flatMap((error) => {
@@ -22,6 +24,14 @@ function flatten(errors: ValidationError[], prefix = ''): ErrorDetail[] {
 
 export function setupApp(app: INestApplication) {
   app.setGlobalPrefix('api/v1');
+  // Sau reverse proxy, req.ip (khóa của rate limit) phải lấy từ X-Forwarded-For
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .set(
+      'trust proxy',
+      parseTrustProxy(app.get(ConfigService).env.TRUST_PROXY),
+    );
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
