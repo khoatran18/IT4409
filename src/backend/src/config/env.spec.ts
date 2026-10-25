@@ -1,4 +1,4 @@
-import { durationToMs, validateEnv } from './env.js';
+import { durationToMs, validateEnv } from './env';
 
 const valid = {
   DATABASE_URL: 'postgresql://u:p@localhost:5433/db',

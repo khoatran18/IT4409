@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import 'dotenv/config';
-import { Env, validateEnv } from './env.js';
+import { Env, validateEnv } from './env';
 
 @Injectable()
 export class ConfigService {
