@@ -1,0 +1,32 @@
+import { Router } from 'express';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export const {{entity.camel}}Router = Router();
+
+{{entity.camel}}Router.get('/', async (_req, res) => {
+  const data = await prisma.{{entity.camel}}.findMany();
+  res.json({ data });
+});
+
+{{entity.camel}}Router.get('/:id', async (req, res) => {
+  const data = await prisma.{{entity.camel}}.findUnique({ where: { id: req.params.id } });
+  if (!data) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '{{entity.pascal}} không tồn tại' } });
+  res.json({ data });
+});
+
+{{entity.camel}}Router.post('/', async (req, res) => {
+  const data = await prisma.{{entity.camel}}.create({ data: req.body });
+  res.status(201).json({ data });
+});
+
+{{entity.camel}}Router.put('/:id', async (req, res) => {
+  const data = await prisma.{{entity.camel}}.update({ where: { id: req.params.id }, data: req.body });
+  res.json({ data });
+});
+
+{{entity.camel}}Router.delete('/:id', async (req, res) => {
+  await prisma.{{entity.camel}}.delete({ where: { id: req.params.id } });
+  res.status(204).end();
+});

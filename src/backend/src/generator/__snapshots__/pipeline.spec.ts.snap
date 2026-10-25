@@ -1,0 +1,127 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`generator pipeline khớp snapshot 1`] = `
+[
+  {
+    "content": "{
+  "name": "school-admin-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.0.0",
+    "express": "^5.0.0"
+  },
+  "devDependencies": {
+    "prisma": "^7.0.0",
+    "typescript": "^5.6.0"
+  }
+}
+",
+    "path": "backend/package.json",
+  },
+  {
+    "content": "generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id        String   @id @default(uuid())
+  name String
+  email String? @unique
+  age Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("students")
+}
+",
+    "path": "backend/prisma/schema.prisma",
+  },
+  {
+    "content": "import { Router } from 'express';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export const studentRouter = Router();
+
+studentRouter.get('/', async (_req, res) => {
+  const data = await prisma.student.findMany();
+  res.json({ data });
+});
+
+studentRouter.get('/:id', async (req, res) => {
+  const data = await prisma.student.findUnique({ where: { id: req.params.id } });
+  if (!data) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Student không tồn tại' } });
+  res.json({ data });
+});
+
+studentRouter.post('/', async (req, res) => {
+  const data = await prisma.student.create({ data: req.body });
+  res.status(201).json({ data });
+});
+
+studentRouter.put('/:id', async (req, res) => {
+  const data = await prisma.student.update({ where: { id: req.params.id }, data: req.body });
+  res.json({ data });
+});
+
+studentRouter.delete('/:id', async (req, res) => {
+  await prisma.student.delete({ where: { id: req.params.id } });
+  res.status(204).end();
+});
+",
+    "path": "backend/src/modules/student/student.routes.ts",
+  },
+  {
+    "content": "import express from 'express';
+import { studentRouter } from './modules/student/student.routes';
+
+const app = express();
+app.use(express.json());
+app.use('/api/students', studentRouter);
+
+app.listen(Number(process.env.PORT ?? 3000));
+",
+    "path": "backend/src/server.ts",
+  },
+  {
+    "content": "services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: \${DB_NAME:-school-admin}
+      POSTGRES_USER: \${DB_USER:-app}
+      POSTGRES_PASSWORD: \${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${DB_USER:-app} -d \${DB_NAME:-school-admin}"]
+      interval: 5s
+      retries: 10
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    environment:
+      JWT_SECRET: \${JWT_SECRET:?đặt JWT_SECRET trong .env}
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
+",
+    "path": "docker-compose.yml",
+  },
+]
+`;

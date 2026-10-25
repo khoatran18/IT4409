@@ -1,0 +1,12 @@
+import express from 'express';
+{{#each entities}}
+import { {{camel}}Router } from './modules/{{kebab}}/{{kebab}}.routes';
+{{/each}}
+
+const app = express();
+app.use(express.json());
+{{#each entities}}
+app.use('/api/{{pluralKebab}}', {{camel}}Router);
+{{/each}}
+
+app.listen(Number(process.env.PORT ?? 3000));
