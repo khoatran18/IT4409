@@ -1,0 +1,10 @@
+{
+  "name": "it4409",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --dir src/frontend dev",
+    "build": "pnpm --dir src/schema build && pnpm --dir src/frontend build",
+    "test": "pnpm --dir src/schema build && pnpm --dir src/schema test && pnpm --dir src/frontend test",
+    "lint": "pnpm --dir src/frontend lint"
+  }
+}
