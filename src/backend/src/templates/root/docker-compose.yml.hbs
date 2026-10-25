@@ -1,0 +1,36 @@
+services:
+  db:
+{{#if (eq db.id "mysql")}}
+    image: mysql:8
+    environment:
+      MYSQL_DATABASE: {{shellVar "DB_NAME" project.kebabName}}
+      MYSQL_USER: ${DB_USER:-app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+{{else}}
+    image: postgres:16
+    environment:
+      POSTGRES_DB: {{shellVar "DB_NAME" project.kebabName}}
+      POSTGRES_USER: ${DB_USER:-app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d {{shellVar "DB_NAME" project.kebabName}}"]
+{{/if}}
+      interval: 5s
+      retries: 10
+    volumes:
+      - db_data:/var/lib/{{#if (eq db.id "mysql")}}mysql{{else}}postgresql/data{{/if}}
+
+  backend:
+    build: ./backend
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?đặt JWT_SECRET trong .env}
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

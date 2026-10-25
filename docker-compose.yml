@@ -1,0 +1,36 @@
+name: codeflow-studio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: codeflow-studio-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-codeflow_studio}
+      POSTGRES_USER: ${POSTGRES_USER:-codeflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeflow}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - codeflow_studio_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeflow} -d ${POSTGRES_DB:-codeflow_studio}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: codeflow-studio-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - codeflow_studio_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  codeflow_studio_pgdata:
+  codeflow_studio_redisdata:
