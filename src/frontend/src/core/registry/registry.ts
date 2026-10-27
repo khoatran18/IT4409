@@ -26,6 +26,11 @@ export function defaultProps(type: string): Record<string, unknown> {
   return props
 }
 
+/** Props của node, phần thiếu lấy default từ registry. */
+export function resolveProps(node: Pick<ComponentNode, 'type' | 'props'>): Record<string, unknown> {
+  return { ...defaultProps(node.type), ...node.props }
+}
+
 function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
 }

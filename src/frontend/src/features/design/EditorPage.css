@@ -1,6 +1,6 @@
 .editor {
   display: grid;
-  grid-template-columns: 220px 1fr 280px;
+  grid-template-columns: 220px 1fr 300px;
   flex: 1;
   text-align: left;
 }
@@ -56,10 +56,150 @@
   opacity: 0.5;
 }
 
-.node {
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 24px 0;
+  background: var(--code-bg);
+}
+
+.editor-toolbar:empty {
+  display: none;
+}
+
+.editor-main .canvas {
+  flex: 1;
+}
+
+.palette-search {
+  width: 100%;
+  box-sizing: border-box;
   margin-bottom: 8px;
+}
+
+.palette-group {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.node {
   padding: 4px;
   border: 1px solid transparent;
+  cursor: grab;
+}
+
+.node.dragging {
+  opacity: 0.4;
+}
+
+.node.invalid {
+  border-color: #d33;
+}
+
+.node-warn {
+  display: block;
+  color: #d33;
+  font-size: 12px;
+}
+
+.slot {
+  flex: none;
+  background: transparent;
+}
+
+.slot-v {
+  height: 8px;
+}
+
+.slot-h {
+  width: 8px;
+  align-self: stretch;
+}
+
+.slot-over {
+  background: var(--accent);
+}
+
+.drag-chip {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: grabbing;
+}
+
+.pv-heading {
+  margin: 0;
+}
+
+.pv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.pv-check {
+  flex-direction: row;
+  align-items: center;
+}
+
+.pv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.pv-table th,
+.pv-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.pv-form {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.pv-card {
+  border-style: solid;
+  border-radius: 8px;
+}
+
+.prop {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.prop-required,
+.prop-error {
+  color: #d33;
+}
+
+.prop-invalid input:not([type='checkbox']),
+.prop-invalid select {
+  border-color: #d33;
+}
+
+.prop-checks {
+  display: grid;
+  gap: 2px;
+}
+
+.prop-reset {
+  justify-self: start;
+  font-size: 12px;
 }
 
 .node.selected {
