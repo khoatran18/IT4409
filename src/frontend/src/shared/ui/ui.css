@@ -1,0 +1,38 @@
+.ui-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ui-button--primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.ui-button--secondary {
+  background: transparent;
+  color: var(--accent);
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.ui-input {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text-h);
+  background: var(--bg);
+}

@@ -1,5 +1,6 @@
-import { EditorPage } from './features/design'
+import { RouterProvider } from 'react-router'
+import { router } from './app/router'
 
 export default function App() {
-  return <EditorPage />
+  return <RouterProvider router={router} />
 }
