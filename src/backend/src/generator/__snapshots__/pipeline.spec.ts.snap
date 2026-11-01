@@ -3,34 +3,63 @@
 exports[`generator pipeline khớp snapshot 1`] = `
 [
   {
+    "content": "PORT=3000
+DATABASE_URL=postgresql://app:app@localhost:5432/school-admin
+RATE_LIMIT_PER_MIN=100
+# Đặt số lớp proxy phía trước (ví dụ 1 khi chạy sau nginx) để rate limit lấy đúng IP client
+TRUST_PROXY=false
+",
+    "path": "backend/.env.example",
+  },
+  {
     "content": "{
   "name": "school-admin-backend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "build": "prisma generate && tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "db:push": "prisma db push"
   },
   "dependencies": {
-    "@prisma/client": "^7.0.0",
-    "express": "^5.0.0"
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
-    "prisma": "^7.0.0",
-    "typescript": "^5.6.0"
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "prisma": "^7.10.0",
+    "typescript": "^5.9.0"
   }
 }
 ",
     "path": "backend/package.json",
   },
   {
+    "content": "import 'dotenv/config';
+import { defineConfig } from 'prisma/config';
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  datasource: { url: process.env.DATABASE_URL },
+});
+",
+    "path": "backend/prisma.config.ts",
+  },
+  {
     "content": "generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Student {
@@ -47,52 +76,490 @@ model Student {
     "path": "backend/prisma/schema.prisma",
   },
   {
-    "content": "import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+    "content": "import express from 'express';
+import { env, trustProxySetting } from './config/env';
+import { prisma } from './lib/prisma';
+import { errorHandler, notFound } from './middleware/errorHandler';
+import { logger } from './middleware/logger';
+import { rateLimit } from './middleware/rateLimit';
+import { studentRouter } from './modules/student/student.routes';
 
-const prisma = new PrismaClient();
+export function createApp() {
+  const app = express();
+  app.set('trust proxy', trustProxySetting(env.TRUST_PROXY));
+
+  app.use(logger);
+
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await prisma.$queryRaw\`SELECT 1\`;
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error', db: 'down' });
+    }
+  });
+
+  app.use(rateLimit(env.RATE_LIMIT_PER_MIN));
+  app.use(express.json());
+  // Tuần 4: gắn middleware đăng nhập (parse token) ngay đây; phân quyền gắn trong từng router.
+  app.use('/api/students', studentRouter);
+
+  app.use(notFound);
+  app.use(errorHandler);
+  return app;
+}
+",
+    "path": "backend/src/app.ts",
+  },
+  {
+    "content": "import 'dotenv/config';
+import { z } from 'zod';
+
+const envSchema = z.object({
+  PORT: z.coerce.number().int().default(3000),
+  DATABASE_URL: z.string().min(1),
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
+  TRUST_PROXY: z.string().default('false'),
+});
+
+const parsed = envSchema.safeParse(process.env);
+if (!parsed.success) {
+  const issues = parsed.error.issues
+    .map((issue) => \`\${issue.path.join('.')}: \${issue.message}\`)
+    .join('; ');
+  throw new Error(\`Biến môi trường không hợp lệ: \${issues}\`);
+}
+
+export const env = parsed.data;
+
+/** "true"/"false", số lớp proxy, hoặc danh sách subnet theo cú pháp của Express */
+export function trustProxySetting(value: string): boolean | number | string {
+  if (value === 'true') return true;
+  if (value === 'false' || value === '') return false;
+  return /^\\d+$/.test(value) ? Number(value) : value;
+}
+",
+    "path": "backend/src/config/env.ts",
+  },
+  {
+    "content": "import { PrismaPg } from '@prisma/adapter-pg';
+import { env } from '../config/env';
+import { PrismaClient } from '../generated/prisma/client';
+
+export const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
+});
+",
+    "path": "backend/src/lib/prisma.ts",
+  },
+  {
+    "content": "import { z } from 'zod';
+import { HttpError } from '../middleware/errorHandler';
+
+export const listQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+  sort: z.string().optional(),
+  q: z.string().trim().optional(),
+});
+
+export type ListQuery = z.infer<typeof listQuerySchema>;
+
+export function parseListQuery(query: unknown): ListQuery {
+  const result = listQuerySchema.safeParse(query);
+  if (!result.success) {
+    throw new HttpError(
+      422,
+      'VALIDATION_ERROR',
+      'Tham số truy vấn không hợp lệ',
+      result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
+    );
+  }
+  return result.data;
+}
+
+/** \`name:asc,age:desc\` thành orderBy của Prisma; field lạ trả 422 */
+export function parseSort(
+  sort: string | undefined,
+  allowed: readonly string[],
+): Array<Record<string, 'asc' | 'desc'>> {
+  if (!sort) return [{ createdAt: 'desc' }, { id: 'asc' }];
+  return sort.split(',').map((part) => {
+    const [field, direction = 'asc'] = part.split(':');
+    if (
+      !allowed.includes(field) ||
+      (direction !== 'asc' && direction !== 'desc')
+    ) {
+      throw new HttpError(
+        422,
+        'VALIDATION_ERROR',
+        'Tham số sort không hợp lệ',
+        [
+          {
+            path: 'sort',
+            message: \`"\${part}" không hợp lệ, field hợp lệ: \${allowed.join(', ')}\`,
+          },
+        ],
+      );
+    }
+    return { [field]: direction };
+  });
+}
+",
+    "path": "backend/src/lib/query.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '../generated/prisma/client';
+
+export interface ErrorDetail {
+  path: string;
+  message: string;
+}
+
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: ErrorDetail[],
+  ) {
+    super(message);
+  }
+}
+
+function send(
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  details?: ErrorDetail[],
+) {
+  res
+    .status(status)
+    .json({ error: { code, message, ...(details ? { details } : {}) } });
+}
+
+interface UniqueViolationMeta {
+  target?: string[];
+  driverAdapterError?: {
+    cause?: {
+      table?: string;
+      constraint?: { fields?: string[]; index?: string };
+    };
+  };
+}
+
+/** Tên field vi phạm unique; với adapter pg chỉ có tên index dạng \`<bảng>_<field>_key\` */
+function conflictFields(meta: UniqueViolationMeta | undefined): string[] {
+  const cause = meta?.driverAdapterError?.cause;
+  if (meta?.target) return meta.target;
+  if (cause?.constraint?.fields) return cause.constraint.fields;
+  const { index } = cause?.constraint ?? {};
+  const prefix = \`\${cause?.table}_\`;
+  if (index?.startsWith(prefix) && index.endsWith('_key')) {
+    return [index.slice(prefix.length, -'_key'.length)];
+  }
+  return [];
+}
+
+export function notFound(_req: Request, res: Response) {
+  send(res, 404, 'NOT_FOUND', 'Không tìm thấy đường dẫn');
+}
+
+export function errorHandler(
+  err: unknown,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+) {
+  if (err instanceof HttpError) {
+    return send(res, err.status, err.code, err.message, err.details);
+  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
+      return send(
+        res,
+        409,
+        'CONFLICT',
+        'Giá trị đã tồn tại',
+        conflictFields(err.meta as UniqueViolationMeta | undefined).map(
+          (path) => ({
+            path,
+            message: 'Giá trị đã tồn tại',
+          }),
+        ),
+      );
+    }
+    if (err.code === 'P2025') {
+      return send(res, 404, 'NOT_FOUND', 'Không tìm thấy bản ghi');
+    }
+  }
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 400 || status === 413) {
+    return send(res, 400, 'BAD_REQUEST', 'Request sai cấu trúc');
+  }
+  console.error(\`\${req.id} \${err instanceof Error ? err.stack : String(err)}\`);
+  send(res, 500, 'INTERNAL_ERROR', 'Lỗi máy chủ');
+}
+",
+    "path": "backend/src/middleware/errorHandler.ts",
+  },
+  {
+    "content": "import { randomUUID } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    id?: string;
+  }
+}
+
+export function logger(req: Request, res: Response, next: NextFunction) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  req.id = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.on('finish', () => {
+    console.log(
+      \`\${requestId} \${req.method} \${req.originalUrl} \${res.statusCode} \${Date.now() - startedAt}ms\`,
+    );
+  });
+  next();
+}
+",
+    "path": "backend/src/middleware/logger.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import { HttpError } from './errorHandler';
+
+const WINDOW_MS = 60_000;
+
+/** Giới hạn theo IP, đếm trong bộ nhớ của tiến trình (UserApp không có Redis) */
+export function rateLimit(limit: number) {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of hits) if (entry.resetAt <= now) hits.delete(key);
+  }, WINDOW_MS).unref();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const key = req.ip ?? 'unknown';
+    let entry = hits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + WINDOW_MS };
+      hits.set(key, entry);
+    }
+    entry.count += 1;
+    if (entry.count > limit) {
+      res.setHeader(
+        'Retry-After',
+        String(Math.ceil((entry.resetAt - now) / 1000)),
+      );
+      throw new HttpError(429, 'RATE_LIMITED', 'Quá nhiều yêu cầu');
+    }
+    next();
+  };
+}
+",
+    "path": "backend/src/middleware/rateLimit.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import type { ZodType } from 'zod';
+import { HttpError } from './errorHandler';
+
+/** Kiểm tra req.body bằng Zod và thay bằng dữ liệu đã parse (field lạ bị bỏ) */
+export function validateBody(schema: ZodType) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body ?? {});
+    if (!result.success) {
+      throw new HttpError(
+        422,
+        'VALIDATION_ERROR',
+        'Dữ liệu không hợp lệ',
+        result.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      );
+    }
+    req.body = result.data;
+    next();
+  };
+}
+",
+    "path": "backend/src/middleware/validate.ts",
+  },
+  {
+    "content": "import type { Request, Response } from 'express';
+import { parseListQuery } from '../../lib/query';
+import * as service from './student.service';
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.listStudent(parseListQuery(req.query)));
+}
+
+export async function get(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.getStudent(req.params.id) });
+}
+
+export async function create(req: Request, res: Response) {
+  res.status(201).json({ data: await service.createStudent(req.body) });
+}
+
+export async function update(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.updateStudent(req.params.id, req.body) });
+}
+
+export async function remove(req: Request<{ id: string }>, res: Response) {
+  await service.deleteStudent(req.params.id);
+  res.status(204).end();
+}
+",
+    "path": "backend/src/modules/student/student.controller.ts",
+  },
+  {
+    "content": "import { Router } from 'express';
+import { validateBody } from '../../middleware/validate';
+import * as controller from './student.controller';
+import { studentInputSchema } from './student.schema';
 
 export const studentRouter = Router();
 
-studentRouter.get('/', async (_req, res) => {
-  const data = await prisma.student.findMany();
-  res.json({ data });
-});
-
-studentRouter.get('/:id', async (req, res) => {
-  const data = await prisma.student.findUnique({ where: { id: req.params.id } });
-  if (!data) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Student không tồn tại' } });
-  res.json({ data });
-});
-
-studentRouter.post('/', async (req, res) => {
-  const data = await prisma.student.create({ data: req.body });
-  res.status(201).json({ data });
-});
-
-studentRouter.put('/:id', async (req, res) => {
-  const data = await prisma.student.update({ where: { id: req.params.id }, data: req.body });
-  res.json({ data });
-});
-
-studentRouter.delete('/:id', async (req, res) => {
-  await prisma.student.delete({ where: { id: req.params.id } });
-  res.status(204).end();
-});
+// Tuần 4: thêm authorize('Student', 'R' | 'C' | 'U' | 'D') trước từng handler.
+studentRouter.get('/', controller.list);
+studentRouter.get('/:id', controller.get);
+studentRouter.post('/', validateBody(studentInputSchema), controller.create);
+studentRouter.put('/:id', validateBody(studentInputSchema), controller.update);
+studentRouter.delete('/:id', controller.remove);
 ",
     "path": "backend/src/modules/student/student.routes.ts",
   },
   {
-    "content": "import express from 'express';
-import { studentRouter } from './modules/student/student.routes';
+    "content": "import { z } from 'zod';
 
-const app = express();
-app.use(express.json());
-app.use('/api/students', studentRouter);
+/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
+export const studentInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  email: z.string().max(255).nullish(),
+  age: z.number().nullish(),
+});
 
-app.listen(Number(process.env.PORT ?? 3000));
+export type StudentInput = z.infer<typeof studentInputSchema>;
+",
+    "path": "backend/src/modules/student/student.schema.ts",
+  },
+  {
+    "content": "import { Prisma } from '../../generated/prisma/client';
+import { prisma } from '../../lib/prisma';
+import { HttpError } from '../../middleware/errorHandler';
+import { parseSort, type ListQuery } from '../../lib/query';
+import type { StudentInput } from './student.schema';
+
+const SORTABLE = [
+  'id',
+  'name',
+  'email',
+  'age',
+  'createdAt',
+  'updatedAt',
+] as const;
+
+const SEARCHABLE = ['name', 'email'] as const;
+
+export async function listStudent({ page, pageSize, sort, q }: ListQuery) {
+  const where = (
+    q && SEARCHABLE.length > 0
+      ? {
+          OR: SEARCHABLE.map((field) => ({
+            [field]: { contains: q, mode: 'insensitive' },
+          })),
+        }
+      : {}
+  ) as Prisma.StudentWhereInput;
+  const [total, data] = await Promise.all([
+    prisma.student.count({ where }),
+    prisma.student.findMany({
+      where,
+      orderBy: parseSort(sort, SORTABLE),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return { data, meta: { page, pageSize, total } };
+}
+
+export async function getStudent(id: string) {
+  const record = await prisma.student.findUnique({ where: { id } });
+  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Student không tồn tại');
+  return record;
+}
+
+export function createStudent(input: StudentInput) {
+  return prisma.student.create({ data: input });
+}
+
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {
+  email: null,
+  age: null,
+};
+
+export function updateStudent(id: string, input: StudentInput) {
+  return prisma.student.update({
+    where: { id },
+    data: { ...CLEARED, ...input },
+  });
+}
+
+export async function deleteStudent(id: string) {
+  await prisma.student.delete({ where: { id } });
+}
+",
+    "path": "backend/src/modules/student/student.service.ts",
+  },
+  {
+    "content": "import { createApp } from './app';
+import { env } from './config/env';
+import { prisma } from './lib/prisma';
+
+const server = createApp().listen(env.PORT, () => {
+  console.log('school-admin', 'backend lắng nghe tại cổng', env.PORT);
+});
+
+async function shutdown() {
+  server.close();
+  await prisma.$disconnect();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 ",
     "path": "backend/src/server.ts",
+  },
+  {
+    "content": "{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+",
+    "path": "backend/tsconfig.json",
   },
   {
     "content": "services:
@@ -103,7 +570,11 @@ app.listen(Number(process.env.PORT ?? 3000));
       POSTGRES_USER: \${DB_USER:-app}
       POSTGRES_PASSWORD: \${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \${DB_USER:-app} -d \${DB_NAME:-school-admin}"]
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U \${DB_USER:-app} -d \${DB_NAME:-school-admin}',
+        ]
       interval: 5s
       retries: 10
     volumes:
@@ -122,6 +593,1020 @@ volumes:
   db_data:
 ",
     "path": "docker-compose.yml",
+  },
+  {
+    "content": "FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+",
+    "path": "frontend/Dockerfile",
+  },
+  {
+    "content": "<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>school-admin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+",
+    "path": "frontend/index.html",
+  },
+  {
+    "content": "server {
+  listen 80;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://backend:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}
+",
+    "path": "frontend/nginx.conf",
+  },
+  {
+    "content": "{
+  "name": "school-admin-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}
+",
+    "path": "frontend/package.json",
+  },
+  {
+    "content": "import { Navigate, Route, Routes } from 'react-router-dom';
+import PagePlaceholder from './pages/PagePlaceholder';
+
+function StudentsPage() {
+  return <PagePlaceholder title="Sinh viên" />;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/students" replace />} />
+      <Route path="/students" element={<StudentsPage />} />
+      <Route path="*" element={<PagePlaceholder title="404" />} />
+    </Routes>
+  );
+}
+",
+    "path": "frontend/src/App.tsx",
+  },
+  {
+    "content": "import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+);
+",
+    "path": "frontend/src/main.tsx",
+  },
+  {
+    "content": "const style = { padding: 24 };
+
+export default function PagePlaceholder({ title }: { title: string }) {
+  return (
+    <main style={style}>
+      <h1>{title}</h1>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/pages/PagePlaceholder.tsx",
+  },
+  {
+    "content": "{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true
+  },
+  "include": ["src"]
+}
+",
+    "path": "frontend/tsconfig.json",
+  },
+  {
+    "content": "import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: { '/api': 'http://localhost:3000' },
+  },
+});
+",
+    "path": "frontend/vite.config.ts",
+  },
+]
+`;
+
+exports[`generator pipeline khớp snapshot với schema mẫu thứ hai 1`] = `
+[
+  {
+    "content": "PORT=3000
+DATABASE_URL=postgresql://app:app@localhost:5432/inventory
+RATE_LIMIT_PER_MIN=100
+# Đặt số lớp proxy phía trước (ví dụ 1 khi chạy sau nginx) để rate limit lấy đúng IP client
+TRUST_PROXY=false
+",
+    "path": "backend/.env.example",
+  },
+  {
+    "content": "{
+  "name": "inventory-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "prisma generate && tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "prisma": "^7.10.0",
+    "typescript": "^5.9.0"
+  }
+}
+",
+    "path": "backend/package.json",
+  },
+  {
+    "content": "import 'dotenv/config';
+import { defineConfig } from 'prisma/config';
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  datasource: { url: process.env.DATABASE_URL },
+});
+",
+    "path": "backend/prisma.config.ts",
+  },
+  {
+    "content": "generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Product {
+  id        String   @id @default(uuid())
+  name String
+  sku String @unique
+  description String?
+  price Float
+  quantity Float @default(0)
+  category String? @default("Other")
+  inStock Boolean? @default(true)
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  title String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("categories")
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  companyName String
+  active Boolean @default(true)
+  ownerId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+",
+    "path": "backend/prisma/schema.prisma",
+  },
+  {
+    "content": "import express from 'express';
+import { env, trustProxySetting } from './config/env';
+import { prisma } from './lib/prisma';
+import { errorHandler, notFound } from './middleware/errorHandler';
+import { logger } from './middleware/logger';
+import { rateLimit } from './middleware/rateLimit';
+import { productRouter } from './modules/product/product.routes';
+import { categoryRouter } from './modules/category/category.routes';
+import { supplierRouter } from './modules/supplier/supplier.routes';
+
+export function createApp() {
+  const app = express();
+  app.set('trust proxy', trustProxySetting(env.TRUST_PROXY));
+
+  app.use(logger);
+
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await prisma.$queryRaw\`SELECT 1\`;
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error', db: 'down' });
+    }
+  });
+
+  app.use(rateLimit(env.RATE_LIMIT_PER_MIN));
+  app.use(express.json());
+  // Tuần 4: gắn middleware đăng nhập (parse token) ngay đây; phân quyền gắn trong từng router.
+  app.use('/api/products', productRouter);
+  app.use('/api/categories', categoryRouter);
+  app.use('/api/suppliers', supplierRouter);
+
+  app.use(notFound);
+  app.use(errorHandler);
+  return app;
+}
+",
+    "path": "backend/src/app.ts",
+  },
+  {
+    "content": "import 'dotenv/config';
+import { z } from 'zod';
+
+const envSchema = z.object({
+  PORT: z.coerce.number().int().default(3000),
+  DATABASE_URL: z.string().min(1),
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
+  TRUST_PROXY: z.string().default('false'),
+});
+
+const parsed = envSchema.safeParse(process.env);
+if (!parsed.success) {
+  const issues = parsed.error.issues
+    .map((issue) => \`\${issue.path.join('.')}: \${issue.message}\`)
+    .join('; ');
+  throw new Error(\`Biến môi trường không hợp lệ: \${issues}\`);
+}
+
+export const env = parsed.data;
+
+/** "true"/"false", số lớp proxy, hoặc danh sách subnet theo cú pháp của Express */
+export function trustProxySetting(value: string): boolean | number | string {
+  if (value === 'true') return true;
+  if (value === 'false' || value === '') return false;
+  return /^\\d+$/.test(value) ? Number(value) : value;
+}
+",
+    "path": "backend/src/config/env.ts",
+  },
+  {
+    "content": "import { PrismaPg } from '@prisma/adapter-pg';
+import { env } from '../config/env';
+import { PrismaClient } from '../generated/prisma/client';
+
+export const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
+});
+",
+    "path": "backend/src/lib/prisma.ts",
+  },
+  {
+    "content": "import { z } from 'zod';
+import { HttpError } from '../middleware/errorHandler';
+
+export const listQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+  sort: z.string().optional(),
+  q: z.string().trim().optional(),
+});
+
+export type ListQuery = z.infer<typeof listQuerySchema>;
+
+export function parseListQuery(query: unknown): ListQuery {
+  const result = listQuerySchema.safeParse(query);
+  if (!result.success) {
+    throw new HttpError(
+      422,
+      'VALIDATION_ERROR',
+      'Tham số truy vấn không hợp lệ',
+      result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
+    );
+  }
+  return result.data;
+}
+
+/** \`name:asc,age:desc\` thành orderBy của Prisma; field lạ trả 422 */
+export function parseSort(
+  sort: string | undefined,
+  allowed: readonly string[],
+): Array<Record<string, 'asc' | 'desc'>> {
+  if (!sort) return [{ createdAt: 'desc' }, { id: 'asc' }];
+  return sort.split(',').map((part) => {
+    const [field, direction = 'asc'] = part.split(':');
+    if (
+      !allowed.includes(field) ||
+      (direction !== 'asc' && direction !== 'desc')
+    ) {
+      throw new HttpError(
+        422,
+        'VALIDATION_ERROR',
+        'Tham số sort không hợp lệ',
+        [
+          {
+            path: 'sort',
+            message: \`"\${part}" không hợp lệ, field hợp lệ: \${allowed.join(', ')}\`,
+          },
+        ],
+      );
+    }
+    return { [field]: direction };
+  });
+}
+",
+    "path": "backend/src/lib/query.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '../generated/prisma/client';
+
+export interface ErrorDetail {
+  path: string;
+  message: string;
+}
+
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: ErrorDetail[],
+  ) {
+    super(message);
+  }
+}
+
+function send(
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  details?: ErrorDetail[],
+) {
+  res
+    .status(status)
+    .json({ error: { code, message, ...(details ? { details } : {}) } });
+}
+
+interface UniqueViolationMeta {
+  target?: string[];
+  driverAdapterError?: {
+    cause?: {
+      table?: string;
+      constraint?: { fields?: string[]; index?: string };
+    };
+  };
+}
+
+/** Tên field vi phạm unique; với adapter pg chỉ có tên index dạng \`<bảng>_<field>_key\` */
+function conflictFields(meta: UniqueViolationMeta | undefined): string[] {
+  const cause = meta?.driverAdapterError?.cause;
+  if (meta?.target) return meta.target;
+  if (cause?.constraint?.fields) return cause.constraint.fields;
+  const { index } = cause?.constraint ?? {};
+  const prefix = \`\${cause?.table}_\`;
+  if (index?.startsWith(prefix) && index.endsWith('_key')) {
+    return [index.slice(prefix.length, -'_key'.length)];
+  }
+  return [];
+}
+
+export function notFound(_req: Request, res: Response) {
+  send(res, 404, 'NOT_FOUND', 'Không tìm thấy đường dẫn');
+}
+
+export function errorHandler(
+  err: unknown,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+) {
+  if (err instanceof HttpError) {
+    return send(res, err.status, err.code, err.message, err.details);
+  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
+      return send(
+        res,
+        409,
+        'CONFLICT',
+        'Giá trị đã tồn tại',
+        conflictFields(err.meta as UniqueViolationMeta | undefined).map(
+          (path) => ({
+            path,
+            message: 'Giá trị đã tồn tại',
+          }),
+        ),
+      );
+    }
+    if (err.code === 'P2025') {
+      return send(res, 404, 'NOT_FOUND', 'Không tìm thấy bản ghi');
+    }
+  }
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 400 || status === 413) {
+    return send(res, 400, 'BAD_REQUEST', 'Request sai cấu trúc');
+  }
+  console.error(\`\${req.id} \${err instanceof Error ? err.stack : String(err)}\`);
+  send(res, 500, 'INTERNAL_ERROR', 'Lỗi máy chủ');
+}
+",
+    "path": "backend/src/middleware/errorHandler.ts",
+  },
+  {
+    "content": "import { randomUUID } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    id?: string;
+  }
+}
+
+export function logger(req: Request, res: Response, next: NextFunction) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  req.id = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.on('finish', () => {
+    console.log(
+      \`\${requestId} \${req.method} \${req.originalUrl} \${res.statusCode} \${Date.now() - startedAt}ms\`,
+    );
+  });
+  next();
+}
+",
+    "path": "backend/src/middleware/logger.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import { HttpError } from './errorHandler';
+
+const WINDOW_MS = 60_000;
+
+/** Giới hạn theo IP, đếm trong bộ nhớ của tiến trình (UserApp không có Redis) */
+export function rateLimit(limit: number) {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of hits) if (entry.resetAt <= now) hits.delete(key);
+  }, WINDOW_MS).unref();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const key = req.ip ?? 'unknown';
+    let entry = hits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + WINDOW_MS };
+      hits.set(key, entry);
+    }
+    entry.count += 1;
+    if (entry.count > limit) {
+      res.setHeader(
+        'Retry-After',
+        String(Math.ceil((entry.resetAt - now) / 1000)),
+      );
+      throw new HttpError(429, 'RATE_LIMITED', 'Quá nhiều yêu cầu');
+    }
+    next();
+  };
+}
+",
+    "path": "backend/src/middleware/rateLimit.ts",
+  },
+  {
+    "content": "import type { NextFunction, Request, Response } from 'express';
+import type { ZodType } from 'zod';
+import { HttpError } from './errorHandler';
+
+/** Kiểm tra req.body bằng Zod và thay bằng dữ liệu đã parse (field lạ bị bỏ) */
+export function validateBody(schema: ZodType) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body ?? {});
+    if (!result.success) {
+      throw new HttpError(
+        422,
+        'VALIDATION_ERROR',
+        'Dữ liệu không hợp lệ',
+        result.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      );
+    }
+    req.body = result.data;
+    next();
+  };
+}
+",
+    "path": "backend/src/middleware/validate.ts",
+  },
+  {
+    "content": "import type { Request, Response } from 'express';
+import { parseListQuery } from '../../lib/query';
+import * as service from './category.service';
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.listCategory(parseListQuery(req.query)));
+}
+
+export async function get(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.getCategory(req.params.id) });
+}
+
+export async function create(req: Request, res: Response) {
+  res.status(201).json({ data: await service.createCategory(req.body) });
+}
+
+export async function update(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.updateCategory(req.params.id, req.body) });
+}
+
+export async function remove(req: Request<{ id: string }>, res: Response) {
+  await service.deleteCategory(req.params.id);
+  res.status(204).end();
+}
+",
+    "path": "backend/src/modules/category/category.controller.ts",
+  },
+  {
+    "content": "import { Router } from 'express';
+import { validateBody } from '../../middleware/validate';
+import * as controller from './category.controller';
+import { categoryInputSchema } from './category.schema';
+
+export const categoryRouter = Router();
+
+// Tuần 4: thêm authorize('Category', 'R' | 'C' | 'U' | 'D') trước từng handler.
+categoryRouter.get('/', controller.list);
+categoryRouter.get('/:id', controller.get);
+categoryRouter.post('/', validateBody(categoryInputSchema), controller.create);
+categoryRouter.put(
+  '/:id',
+  validateBody(categoryInputSchema),
+  controller.update,
+);
+categoryRouter.delete('/:id', controller.remove);
+",
+    "path": "backend/src/modules/category/category.routes.ts",
+  },
+  {
+    "content": "import { z } from 'zod';
+
+/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
+export const categoryInputSchema = z.object({
+  title: z.string().min(1).max(255),
+});
+
+export type CategoryInput = z.infer<typeof categoryInputSchema>;
+",
+    "path": "backend/src/modules/category/category.schema.ts",
+  },
+  {
+    "content": "import { Prisma } from '../../generated/prisma/client';
+import { prisma } from '../../lib/prisma';
+import { HttpError } from '../../middleware/errorHandler';
+import { parseSort, type ListQuery } from '../../lib/query';
+import type { CategoryInput } from './category.schema';
+
+const SORTABLE = ['id', 'title', 'createdAt', 'updatedAt'] as const;
+
+const SEARCHABLE = ['title'] as const;
+
+export async function listCategory({ page, pageSize, sort, q }: ListQuery) {
+  const where = (
+    q && SEARCHABLE.length > 0
+      ? {
+          OR: SEARCHABLE.map((field) => ({
+            [field]: { contains: q, mode: 'insensitive' },
+          })),
+        }
+      : {}
+  ) as Prisma.CategoryWhereInput;
+  const [total, data] = await Promise.all([
+    prisma.category.count({ where }),
+    prisma.category.findMany({
+      where,
+      orderBy: parseSort(sort, SORTABLE),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return { data, meta: { page, pageSize, total } };
+}
+
+export async function getCategory(id: string) {
+  const record = await prisma.category.findUnique({ where: { id } });
+  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Category không tồn tại');
+  return record;
+}
+
+export function createCategory(input: CategoryInput) {
+  return prisma.category.create({ data: input });
+}
+
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {};
+
+export function updateCategory(id: string, input: CategoryInput) {
+  return prisma.category.update({
+    where: { id },
+    data: { ...CLEARED, ...input },
+  });
+}
+
+export async function deleteCategory(id: string) {
+  await prisma.category.delete({ where: { id } });
+}
+",
+    "path": "backend/src/modules/category/category.service.ts",
+  },
+  {
+    "content": "import type { Request, Response } from 'express';
+import { parseListQuery } from '../../lib/query';
+import * as service from './product.service';
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.listProduct(parseListQuery(req.query)));
+}
+
+export async function get(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.getProduct(req.params.id) });
+}
+
+export async function create(req: Request, res: Response) {
+  res.status(201).json({ data: await service.createProduct(req.body) });
+}
+
+export async function update(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.updateProduct(req.params.id, req.body) });
+}
+
+export async function remove(req: Request<{ id: string }>, res: Response) {
+  await service.deleteProduct(req.params.id);
+  res.status(204).end();
+}
+",
+    "path": "backend/src/modules/product/product.controller.ts",
+  },
+  {
+    "content": "import { Router } from 'express';
+import { validateBody } from '../../middleware/validate';
+import * as controller from './product.controller';
+import { productInputSchema } from './product.schema';
+
+export const productRouter = Router();
+
+// Tuần 4: thêm authorize('Product', 'R' | 'C' | 'U' | 'D') trước từng handler.
+productRouter.get('/', controller.list);
+productRouter.get('/:id', controller.get);
+productRouter.post('/', validateBody(productInputSchema), controller.create);
+productRouter.put('/:id', validateBody(productInputSchema), controller.update);
+productRouter.delete('/:id', controller.remove);
+",
+    "path": "backend/src/modules/product/product.routes.ts",
+  },
+  {
+    "content": "import { z } from 'zod';
+
+/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
+export const productInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  sku: z.string().min(1).max(255),
+  description: z.string().max(65535).nullish(),
+  price: z.number(),
+  quantity: z.number().default(0),
+  category: z
+    .enum(['Electronics', 'Clothing', 'Food', 'Other'])
+    .default('Other')
+    .nullable(),
+  inStock: z.boolean().default(true).nullable(),
+  releasedAt: z.coerce.date().nullish(),
+});
+
+export type ProductInput = z.infer<typeof productInputSchema>;
+",
+    "path": "backend/src/modules/product/product.schema.ts",
+  },
+  {
+    "content": "import { Prisma } from '../../generated/prisma/client';
+import { prisma } from '../../lib/prisma';
+import { HttpError } from '../../middleware/errorHandler';
+import { parseSort, type ListQuery } from '../../lib/query';
+import type { ProductInput } from './product.schema';
+
+const SORTABLE = [
+  'id',
+  'name',
+  'sku',
+  'description',
+  'price',
+  'quantity',
+  'category',
+  'inStock',
+  'releasedAt',
+  'createdAt',
+  'updatedAt',
+] as const;
+
+const SEARCHABLE = ['name', 'sku', 'description'] as const;
+
+export async function listProduct({ page, pageSize, sort, q }: ListQuery) {
+  const where = (
+    q && SEARCHABLE.length > 0
+      ? {
+          OR: SEARCHABLE.map((field) => ({
+            [field]: { contains: q, mode: 'insensitive' },
+          })),
+        }
+      : {}
+  ) as Prisma.ProductWhereInput;
+  const [total, data] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.findMany({
+      where,
+      orderBy: parseSort(sort, SORTABLE),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return { data, meta: { page, pageSize, total } };
+}
+
+export async function getProduct(id: string) {
+  const record = await prisma.product.findUnique({ where: { id } });
+  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Product không tồn tại');
+  return record;
+}
+
+export function createProduct(input: ProductInput) {
+  return prisma.product.create({ data: input });
+}
+
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {
+  description: null,
+  category: null,
+  inStock: null,
+  releasedAt: null,
+};
+
+export function updateProduct(id: string, input: ProductInput) {
+  return prisma.product.update({
+    where: { id },
+    data: { ...CLEARED, ...input },
+  });
+}
+
+export async function deleteProduct(id: string) {
+  await prisma.product.delete({ where: { id } });
+}
+",
+    "path": "backend/src/modules/product/product.service.ts",
+  },
+  {
+    "content": "import type { Request, Response } from 'express';
+import { parseListQuery } from '../../lib/query';
+import * as service from './supplier.service';
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.listSupplier(parseListQuery(req.query)));
+}
+
+export async function get(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.getSupplier(req.params.id) });
+}
+
+export async function create(req: Request, res: Response) {
+  res.status(201).json({ data: await service.createSupplier(req.body) });
+}
+
+export async function update(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.updateSupplier(req.params.id, req.body) });
+}
+
+export async function remove(req: Request<{ id: string }>, res: Response) {
+  await service.deleteSupplier(req.params.id);
+  res.status(204).end();
+}
+",
+    "path": "backend/src/modules/supplier/supplier.controller.ts",
+  },
+  {
+    "content": "import { Router } from 'express';
+import { validateBody } from '../../middleware/validate';
+import * as controller from './supplier.controller';
+import { supplierInputSchema } from './supplier.schema';
+
+export const supplierRouter = Router();
+
+// Tuần 4: thêm authorize('Supplier', 'R' | 'C' | 'U' | 'D') trước từng handler.
+supplierRouter.get('/', controller.list);
+supplierRouter.get('/:id', controller.get);
+supplierRouter.post('/', validateBody(supplierInputSchema), controller.create);
+supplierRouter.put(
+  '/:id',
+  validateBody(supplierInputSchema),
+  controller.update,
+);
+supplierRouter.delete('/:id', controller.remove);
+",
+    "path": "backend/src/modules/supplier/supplier.routes.ts",
+  },
+  {
+    "content": "import { z } from 'zod';
+
+/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
+export const supplierInputSchema = z.object({
+  companyName: z.string().min(1).max(255),
+  active: z.boolean().default(true),
+});
+
+export type SupplierInput = z.infer<typeof supplierInputSchema>;
+",
+    "path": "backend/src/modules/supplier/supplier.schema.ts",
+  },
+  {
+    "content": "import { Prisma } from '../../generated/prisma/client';
+import { prisma } from '../../lib/prisma';
+import { HttpError } from '../../middleware/errorHandler';
+import { parseSort, type ListQuery } from '../../lib/query';
+import type { SupplierInput } from './supplier.schema';
+
+const SORTABLE = [
+  'id',
+  'companyName',
+  'active',
+  'createdAt',
+  'updatedAt',
+] as const;
+
+const SEARCHABLE = ['companyName'] as const;
+
+export async function listSupplier({ page, pageSize, sort, q }: ListQuery) {
+  const where = (
+    q && SEARCHABLE.length > 0
+      ? {
+          OR: SEARCHABLE.map((field) => ({
+            [field]: { contains: q, mode: 'insensitive' },
+          })),
+        }
+      : {}
+  ) as Prisma.SupplierWhereInput;
+  const [total, data] = await Promise.all([
+    prisma.supplier.count({ where }),
+    prisma.supplier.findMany({
+      where,
+      orderBy: parseSort(sort, SORTABLE),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return { data, meta: { page, pageSize, total } };
+}
+
+export async function getSupplier(id: string) {
+  const record = await prisma.supplier.findUnique({ where: { id } });
+  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Supplier không tồn tại');
+  return record;
+}
+
+export function createSupplier(input: SupplierInput) {
+  return prisma.supplier.create({ data: input });
+}
+
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {};
+
+export function updateSupplier(id: string, input: SupplierInput) {
+  return prisma.supplier.update({
+    where: { id },
+    data: { ...CLEARED, ...input },
+  });
+}
+
+export async function deleteSupplier(id: string) {
+  await prisma.supplier.delete({ where: { id } });
+}
+",
+    "path": "backend/src/modules/supplier/supplier.service.ts",
+  },
+  {
+    "content": "import { createApp } from './app';
+import { env } from './config/env';
+import { prisma } from './lib/prisma';
+
+const server = createApp().listen(env.PORT, () => {
+  console.log('inventory', 'backend lắng nghe tại cổng', env.PORT);
+});
+
+async function shutdown() {
+  server.close();
+  await prisma.$disconnect();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+",
+    "path": "backend/src/server.ts",
+  },
+  {
+    "content": "{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+",
+    "path": "backend/tsconfig.json",
   },
 ]
 `;

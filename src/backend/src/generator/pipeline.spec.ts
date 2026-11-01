@@ -1,36 +1,70 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createEmptyProject, schoolAdminSample } from '@codeflow/schema';
+import {
+  createEmptyProject,
+  schoolAdminSample,
+} from '@codeflow/schema';
 import { generate } from './pipeline';
 import { buildContext } from './steps/build-context';
 import { nameForms, normalize } from './steps/normalize';
 import { SchemaValidationError } from './types';
 
 describe('generator pipeline', () => {
-  it('sinh đúng bộ file từ schema mẫu', () => {
-    const files = generate(schoolAdminSample);
+  it('sinh đúng bộ file từ schema mẫu', async () => {
+    const files = await generate(schoolAdminSample);
     expect(files.map((f) => f.path)).toEqual([
+      'backend/.env.example',
       'backend/package.json',
+      'backend/prisma.config.ts',
       'backend/prisma/schema.prisma',
+      'backend/src/app.ts',
+      'backend/src/config/env.ts',
+      'backend/src/lib/prisma.ts',
+      'backend/src/lib/query.ts',
+      'backend/src/middleware/errorHandler.ts',
+      'backend/src/middleware/logger.ts',
+      'backend/src/middleware/rateLimit.ts',
+      'backend/src/middleware/validate.ts',
+      'backend/src/modules/student/student.controller.ts',
       'backend/src/modules/student/student.routes.ts',
+      'backend/src/modules/student/student.schema.ts',
+      'backend/src/modules/student/student.service.ts',
       'backend/src/server.ts',
+      'backend/tsconfig.json',
       'docker-compose.yml',
+      'frontend/Dockerfile',
+      'frontend/index.html',
+      'frontend/nginx.conf',
+      'frontend/package.json',
+      'frontend/src/App.tsx',
+      'frontend/src/main.tsx',
+      'frontend/src/pages/PagePlaceholder.tsx',
+      'frontend/tsconfig.json',
+      'frontend/vite.config.ts',
     ]);
   });
 
-  it('khớp snapshot', () => {
-    expect(generate(schoolAdminSample)).toMatchSnapshot();
+  it('không xuất thư mục __tests__ của template', async () => {
+    expect(
+      (await generate(schoolAdminSample)).some((f) =>
+        f.path.includes('__tests__'),
+      ),
+    ).toBe(false);
   });
 
-  it('xác định: cùng input cho cùng output', () => {
-    expect(generate(structuredClone(schoolAdminSample))).toEqual(
-      generate(schoolAdminSample),
+  it('khớp snapshot', async () => {
+    expect(await generate(schoolAdminSample)).toMatchSnapshot();
+  });
+
+  it('xác định: cùng input cho cùng output', async () => {
+    expect(await generate(structuredClone(schoolAdminSample))).toEqual(
+      await generate(schoolAdminSample),
     );
   });
 
-  it('prisma schema có model và field từ entity', () => {
-    const prisma = generate(schoolAdminSample).find(
+  it('prisma schema có model và field từ entity', async () => {
+    const prisma = (await generate(schoolAdminSample)).find(
       (f) => f.path === 'backend/prisma/schema.prisma',
     );
     expect(prisma?.content).toContain('model Student {');
@@ -41,12 +75,12 @@ describe('generator pipeline', () => {
     expect(prisma?.content).toContain('provider = "postgresql"');
   });
 
-  it('chọn provider theo meta.database', () => {
+  it('chọn provider theo meta.database', async () => {
     const mysql = {
       ...schoolAdminSample,
       meta: { ...schoolAdminSample.meta, database: 'mysql' },
     };
-    const files = generate(mysql);
+    const files = await generate(mysql);
     expect(
       files.find((f) => f.path === 'backend/prisma/schema.prisma')?.content,
     ).toContain('provider = "mysql"');
@@ -55,24 +89,43 @@ describe('generator pipeline', () => {
     ).toContain('image: mysql:8');
   });
 
-  it('báo lỗi validate kèm đường dẫn', () => {
+  it('báo lỗi validate kèm đường dẫn', async () => {
     const invalid = {
       ...schoolAdminSample,
       entities: [{ name: '1bad', fields: [] }],
     };
-    try {
-      generate(invalid);
-      throw new Error('phải ném lỗi');
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      expect((err as SchemaValidationError).issues[0].path).toBe(
-        'entities.0.name',
-      );
-    }
+    const err = await generate(invalid).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SchemaValidationError);
+    expect((err as SchemaValidationError).issues[0].path).toBe(
+      'entities[0].name',
+    );
   });
 
-  it('project rỗng không sinh file theo entity', () => {
-    const paths = generate(createEmptyProject('empty')).map((f) => f.path);
+  it('báo lỗi nghiệp vụ ngoài Zod', async () => {
+    const invalid = structuredClone(schoolAdminSample);
+    invalid.permissions.Ghost = { admin: 'CRUD' };
+    const err = await generate(invalid).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SchemaValidationError);
+    expect((err as SchemaValidationError).issues).toEqual([
+      expect.objectContaining({
+        path: 'permissions.Ghost',
+        code: 'UNKNOWN_REF',
+      }),
+    ]);
+  });
+
+  it('format bằng Prettier nhưng giữ nguyên file không có parser', async () => {
+    const files = await generate(schoolAdminSample);
+    const get = (path: string) => files.find((f) => f.path === path)!.content;
+    expect(get('backend/src/app.ts')).not.toMatch(/\{\{|\}\}\}/);
+    expect(get('backend/package.json')).toMatch(/^\{\n  "name"/);
+    expect(get('backend/prisma/schema.prisma')).toContain('model Student {');
+  });
+
+  it('project rỗng không sinh file theo entity', async () => {
+    const paths = (await generate(createEmptyProject('empty'))).map(
+      (f) => f.path,
+    );
     expect(paths).not.toContain(
       'backend/src/modules/student/student.routes.ts',
     );
@@ -92,7 +145,7 @@ describe('generator pipeline', () => {
       writeFileSync(full, content);
     };
 
-    it('.hbs có biến, file khác copy nguyên, __entity__ và __page__ lặp, file rỗng bị bỏ', () => {
+    it('.hbs có biến, file khác copy nguyên, __entity__ và __page__ lặp, file rỗng bị bỏ', async () => {
       write('root/readme.md.hbs', '# {{project.name}}');
       write('frontend/raw/{{keep}}.txt', 'giữ {{nguyên}}');
       write('frontend/src/api/__entity__.api.ts.hbs', '{{entity.pluralKebab}}');
@@ -102,12 +155,12 @@ describe('generator pipeline', () => {
         '{{#if auth.allowSelfRegister}}x{{/if}}\n',
       );
 
-      const files = generate(schoolAdminSample, dir);
+      const files = await generate(schoolAdminSample, dir);
       expect(files).toEqual([
         { path: 'frontend/raw/{{keep}}.txt', content: 'giữ {{nguyên}}' },
-        { path: 'frontend/src/api/student.api.ts', content: 'students' },
+        { path: 'frontend/src/api/student.api.ts', content: 'students;\n' },
         { path: 'frontend/src/pages/StudentsPage.tsx', content: '/students' },
-        { path: 'readme.md', content: '# school-admin' },
+        { path: 'readme.md', content: '# school-admin\n' },
       ]);
     });
   });

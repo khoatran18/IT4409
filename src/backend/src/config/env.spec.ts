@@ -1,4 +1,4 @@
-import { durationToMs, validateEnv } from './env';
+import { durationToMs, parseTrustProxy, validateEnv } from './env';
 
 const valid = {
   DATABASE_URL: 'postgresql://u:p@localhost:5433/db',
@@ -32,5 +32,19 @@ describe('durationToMs', () => {
 
   it('từ chối định dạng lạ', () => {
     expect(() => durationToMs('abc')).toThrow();
+  });
+});
+
+describe('parseTrustProxy', () => {
+  it('đổi chuỗi env sang giá trị của Express', () => {
+    expect(parseTrustProxy('false')).toBe(false);
+    expect(parseTrustProxy('')).toBe(false);
+    expect(parseTrustProxy('true')).toBe(true);
+    expect(parseTrustProxy('2')).toBe(2);
+    expect(parseTrustProxy('loopback')).toBe('loopback');
+  });
+
+  it('mặc định là false', () => {
+    expect(validateEnv(valid).TRUST_PROXY).toBe('false');
   });
 });

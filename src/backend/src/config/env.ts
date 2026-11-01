@@ -10,9 +10,17 @@ const envSchema = z.object({
   RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
   LOGIN_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(10),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  TRUST_PROXY: z.string().default('false'),
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/** "true"/"false", số lớp proxy, hoặc danh sách subnet theo cú pháp của Express */
+export function parseTrustProxy(value: string): boolean | number | string {
+  if (value === 'true') return true;
+  if (value === 'false' || value === '') return false;
+  return /^\d+$/.test(value) ? Number(value) : value;
+}
 
 export function validateEnv(raw: Record<string, unknown>): Env {
   const result = envSchema.safeParse(raw);
