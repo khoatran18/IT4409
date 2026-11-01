@@ -1,0 +1,25 @@
+.app-layout__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-layout__brand {
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.app-layout__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-layout__content {
+  padding: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}

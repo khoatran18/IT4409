@@ -1,0 +1,5 @@
+export { LoginPage } from './components/LoginPage'
+export { RegisterPage } from './components/RegisterPage'
+export { ProtectedRoute } from './components/ProtectedRoute'
+export { useAuthStore } from './store'
+export type { Role, User } from './api'
