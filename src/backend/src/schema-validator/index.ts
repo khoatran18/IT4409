@@ -140,7 +140,7 @@ function checkEntities(entities: Entity[], out: Collector) {
     );
     const names = new Map<string, number>();
     entity.fields.forEach((field, j) => {
-      const lower = field.name;
+      const lower = field.name.toLowerCase();
       if (names.has(lower)) {
         out.error(
           `${base}.fields[${j}].name`,

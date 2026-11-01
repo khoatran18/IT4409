@@ -52,8 +52,17 @@ export function create{{entity.pascal}}(input: {{entity.pascal}}Input) {
   return prisma.{{entity.camel}}.create({ data: input });
 }
 
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {
+{{#each entity.fields}}
+{{#unless required}}
+  {{name}}: null,
+{{/unless}}
+{{/each}}
+};
+
 export function update{{entity.pascal}}(id: string, input: {{entity.pascal}}Input) {
-  return prisma.{{entity.camel}}.update({ where: { id }, data: input });
+  return prisma.{{entity.camel}}.update({ where: { id }, data: { ...CLEARED, ...input } });
 }
 
 export async function delete{{entity.pascal}}(id: string) {
