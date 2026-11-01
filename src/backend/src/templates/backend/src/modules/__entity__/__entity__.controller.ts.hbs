@@ -1,0 +1,24 @@
+import type { Request, Response } from 'express';
+import { parseListQuery } from '../../lib/query';
+import * as service from './{{entity.kebab}}.service';
+
+export async function list(req: Request, res: Response) {
+  res.json(await service.list{{entity.pascal}}(parseListQuery(req.query)));
+}
+
+export async function get(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.get{{entity.pascal}}(req.params.id) });
+}
+
+export async function create(req: Request, res: Response) {
+  res.status(201).json({ data: await service.create{{entity.pascal}}(req.body) });
+}
+
+export async function update(req: Request<{ id: string }>, res: Response) {
+  res.json({ data: await service.update{{entity.pascal}}(req.params.id, req.body) });
+}
+
+export async function remove(req: Request<{ id: string }>, res: Response) {
+  await service.delete{{entity.pascal}}(req.params.id);
+  res.status(204).end();
+}

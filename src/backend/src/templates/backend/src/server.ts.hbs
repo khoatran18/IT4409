@@ -1,12 +1,15 @@
-import express from 'express';
-{{#each entities}}
-import { {{camel}}Router } from './modules/{{kebab}}/{{kebab}}.routes';
-{{/each}}
+import { createApp } from './app';
+import { env } from './config/env';
+import { prisma } from './lib/prisma';
 
-const app = express();
-app.use(express.json());
-{{#each entities}}
-app.use('/api/{{pluralKebab}}', {{camel}}Router);
-{{/each}}
+const server = createApp().listen(env.PORT, () => {
+  console.log({{json project.name}}, 'backend lắng nghe tại cổng', env.PORT);
+});
 
-app.listen(Number(process.env.PORT ?? 3000));
+async function shutdown() {
+  server.close();
+  await prisma.$disconnect();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

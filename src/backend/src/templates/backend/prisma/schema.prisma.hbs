@@ -1,20 +1,20 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "{{#if (eq db.id "mysql")}}mysql{{else}}postgresql{{/if}}"
-  url      = env("DATABASE_URL")
 }
 {{#each entities}}
 
 model {{pascal}} {
   id        String   @id @default(uuid())
 {{#each fields}}
-  {{name}} {{prismaType type}}{{#unless required}}?{{/unless}}{{#if unique}} @unique{{/if}}
+  {{name}} {{prismaType type}}{{#unless required}}?{{/unless}}{{#if unique}} @unique{{/if}}{{prismaDefault this}}
 {{/each}}
 {{#if ownerOnly}}
-  ownerId   String
+  ownerId   String?
 {{/if}}
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

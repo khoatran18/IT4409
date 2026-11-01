@@ -1,0 +1,39 @@
+import { z } from 'zod';
+import { HttpError } from '../middleware/errorHandler';
+
+export const listQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(10),
+  sort: z.string().optional(),
+  q: z.string().trim().optional(),
+});
+
+export type ListQuery = z.infer<typeof listQuerySchema>;
+
+export function parseListQuery(query: unknown): ListQuery {
+  const result = listQuerySchema.safeParse(query);
+  if (!result.success) {
+    throw new HttpError(422, 'VALIDATION_ERROR', 'Tham số truy vấn không hợp lệ', result.error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })));
+  }
+  return result.data;
+}
+
+/** `name:asc,age:desc` thành orderBy của Prisma; field lạ trả 422 */
+export function parseSort(
+  sort: string | undefined,
+  allowed: readonly string[],
+): Array<Record<string, 'asc' | 'desc'>> {
+  if (!sort) return [{ createdAt: 'desc' }, { id: 'asc' }];
+  return sort.split(',').map((part) => {
+    const [field, direction = 'asc'] = part.split(':');
+    if (!allowed.includes(field) || (direction !== 'asc' && direction !== 'desc')) {
+      throw new HttpError(422, 'VALIDATION_ERROR', 'Tham số sort không hợp lệ', [
+        { path: 'sort', message: `"${part}" không hợp lệ, field hợp lệ: ${allowed.join(', ')}` },
+      ]);
+    }
+    return { [field]: direction };
+  });
+}
