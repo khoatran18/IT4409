@@ -1,15 +1,11 @@
-import { projectSchema, type ProjectSchema } from '@codeflow/schema';
+import type { ProjectSchema } from '@codeflow/schema';
+import { validateProject } from '../../schema-validator';
 import { SchemaValidationError } from '../types';
 
 export function validate(input: unknown): ProjectSchema {
-  const result = projectSchema.safeParse(input);
-  if (!result.success) {
-    throw new SchemaValidationError(
-      result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    );
+  const report = validateProject(input);
+  if (!report.valid || !report.schema) {
+    throw new SchemaValidationError(report.errors);
   }
-  return result.data;
+  return report.schema;
 }
