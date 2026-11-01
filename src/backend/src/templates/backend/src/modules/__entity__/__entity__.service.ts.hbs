@@ -1,0 +1,70 @@
+import { Prisma } from '../../generated/prisma/client';
+import { prisma } from '../../lib/prisma';
+import { HttpError } from '../../middleware/errorHandler';
+import { parseSort, type ListQuery } from '../../lib/query';
+import type { {{entity.pascal}}Input } from './{{entity.kebab}}.schema';
+
+const SORTABLE = [
+  'id',
+{{#each entity.fields}}
+  {{json name}},
+{{/each}}
+  'createdAt',
+  'updatedAt',
+] as const;
+
+const SEARCHABLE = [
+{{#each entity.fields}}
+{{#if (eq type "string")}}
+  {{json name}},
+{{/if}}
+{{#if (eq type "text")}}
+  {{json name}},
+{{/if}}
+{{/each}}
+] as const;
+
+export async function list{{entity.pascal}}({ page, pageSize, sort, q }: ListQuery) {
+  const where = (
+    q && SEARCHABLE.length > 0
+      ? { OR: SEARCHABLE.map((field) => ({ [field]: { contains: q{{#if (eq db.id "postgres")}}, mode: 'insensitive'{{/if}} } })) }
+      : {}
+  ) as Prisma.{{entity.pascal}}WhereInput;
+  const [total, data] = await Promise.all([
+    prisma.{{entity.camel}}.count({ where }),
+    prisma.{{entity.camel}}.findMany({
+      where,
+      orderBy: parseSort(sort, SORTABLE),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return { data, meta: { page, pageSize, total } };
+}
+
+export async function get{{entity.pascal}}(id: string) {
+  const record = await prisma.{{entity.camel}}.findUnique({ where: { id } });
+  if (!record) throw new HttpError(404, 'NOT_FOUND', '{{entity.pascal}} không tồn tại');
+  return record;
+}
+
+export function create{{entity.pascal}}(input: {{entity.pascal}}Input) {
+  return prisma.{{entity.camel}}.create({ data: input });
+}
+
+/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
+const CLEARED = {
+{{#each entity.fields}}
+{{#unless required}}
+  {{name}}: null,
+{{/unless}}
+{{/each}}
+};
+
+export function update{{entity.pascal}}(id: string, input: {{entity.pascal}}Input) {
+  return prisma.{{entity.camel}}.update({ where: { id }, data: { ...CLEARED, ...input } });
+}
+
+export async function delete{{entity.pascal}}(id: string) {
+  await prisma.{{entity.camel}}.delete({ where: { id } });
+}

@@ -1,17 +1,25 @@
 import type { TemplateContext } from '@codeflow/schema';
 import Handlebars from 'handlebars';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { helpers } from '../helpers';
 import type { GeneratedFile } from '../types';
 
 export const TEMPLATES_DIR = join(__dirname, '..', '..', 'templates');
+
+/**
+ * File markup (HTML/JSX) tự escape `{{x}}` bằng entity, hợp lệ cho cả nội dung lẫn thuộc tính.
+ * File còn lại (ts, json, prisma, yml...) không escape vì entity sẽ phá cú pháp; giá trị người dùng nhập
+ * (title, option, default) phải đi qua helper `json`, còn tên entity/field đã bị Zod giới hạn ở dạng identifier.
+ */
+const ESCAPED_EXTENSIONS = new Set(['.html', '.tsx', '.jsx']);
 
 const ENTITY_TOKEN = '__entity__';
 const PAGE_TOKEN = '__page__';
 
 function listFiles(dir: string, prefix = ''): string[] {
   return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.name !== '__tests__')
     .sort((a, b) => (a.name < b.name ? -1 : 1))
     .flatMap((entry) => {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -43,10 +51,12 @@ export function render(
   for (const templatePath of listFiles(templatesDir)) {
     const source = readFileSync(join(templatesDir, templatePath), 'utf8');
     const isTemplate = templatePath.endsWith('.hbs');
-    const compiled = isTemplate
-      ? hbs.compile(source, { noEscape: true })
-      : undefined;
     const target = outputPath(templatePath);
+    const compiled = isTemplate
+      ? hbs.compile(source, {
+          noEscape: !ESCAPED_EXTENSIONS.has(extname(target)),
+        })
+      : undefined;
 
     const emit = (path: string, data: Record<string, unknown>) => {
       const content = compiled ? compiled(data) : source;

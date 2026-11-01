@@ -1,0 +1,18 @@
+import type { NextFunction, Request, Response } from 'express';
+import type { ZodType } from 'zod';
+import { HttpError } from './errorHandler';
+
+/** Kiểm tra req.body bằng Zod và thay bằng dữ liệu đã parse (field lạ bị bỏ) */
+export function validateBody(schema: ZodType) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body ?? {});
+    if (!result.success) {
+      throw new HttpError(422, 'VALIDATION_ERROR', 'Dữ liệu không hợp lệ', result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })));
+    }
+    req.body = result.data;
+    next();
+  };
+}

@@ -1,0 +1,10 @@
+import { z } from 'zod';
+
+/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
+export const {{entity.camel}}InputSchema = z.object({
+{{#each entity.fields}}
+  {{name}}: {{zodExpr this}},
+{{/each}}
+});
+
+export type {{entity.pascal}}Input = z.infer<typeof {{entity.camel}}InputSchema>;

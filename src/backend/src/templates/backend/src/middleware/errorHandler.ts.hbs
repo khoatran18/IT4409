@@ -1,0 +1,75 @@
+import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '../generated/prisma/client';
+
+export interface ErrorDetail {
+  path: string;
+  message: string;
+}
+
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: ErrorDetail[],
+  ) {
+    super(message);
+  }
+}
+
+function send(res: Response, status: number, code: string, message: string, details?: ErrorDetail[]) {
+  res.status(status).json({ error: { code, message, ...(details ? { details } : {}) } });
+}
+
+interface UniqueViolationMeta {
+  target?: string[];
+  driverAdapterError?: {
+    cause?: { table?: string; constraint?: { fields?: string[]; index?: string } };
+  };
+}
+
+/** Tên field vi phạm unique; với adapter pg chỉ có tên index dạng `<bảng>_<field>_key` */
+function conflictFields(meta: UniqueViolationMeta | undefined): string[] {
+  const cause = meta?.driverAdapterError?.cause;
+  if (meta?.target) return meta.target;
+  if (cause?.constraint?.fields) return cause.constraint.fields;
+  const { index } = cause?.constraint ?? {};
+  const prefix = `${cause?.table}_`;
+  if (index?.startsWith(prefix) && index.endsWith('_key')) {
+    return [index.slice(prefix.length, -'_key'.length)];
+  }
+  return [];
+}
+
+export function notFound(_req: Request, res: Response) {
+  send(res, 404, 'NOT_FOUND', 'Không tìm thấy đường dẫn');
+}
+
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
+  if (err instanceof HttpError) {
+    return send(res, err.status, err.code, err.message, err.details);
+  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
+      return send(
+        res,
+        409,
+        'CONFLICT',
+        'Giá trị đã tồn tại',
+        conflictFields(err.meta as UniqueViolationMeta | undefined).map((path) => ({
+          path,
+          message: 'Giá trị đã tồn tại',
+        })),
+      );
+    }
+    if (err.code === 'P2025') {
+      return send(res, 404, 'NOT_FOUND', 'Không tìm thấy bản ghi');
+    }
+  }
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 400 || status === 413) {
+    return send(res, 400, 'BAD_REQUEST', 'Request sai cấu trúc');
+  }
+  console.error(`${req.id} ${err instanceof Error ? err.stack : String(err)}`);
+  send(res, 500, 'INTERNAL_ERROR', 'Lỗi máy chủ');
+}

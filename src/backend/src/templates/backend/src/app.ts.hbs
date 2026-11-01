@@ -1,0 +1,36 @@
+import express from 'express';
+import { env, trustProxySetting } from './config/env';
+import { prisma } from './lib/prisma';
+import { errorHandler, notFound } from './middleware/errorHandler';
+import { logger } from './middleware/logger';
+import { rateLimit } from './middleware/rateLimit';
+{{#each entities}}
+import { {{camel}}Router } from './modules/{{kebab}}/{{kebab}}.routes';
+{{/each}}
+
+export function createApp() {
+  const app = express();
+  app.set('trust proxy', trustProxySetting(env.TRUST_PROXY));
+
+  app.use(logger);
+
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error', db: 'down' });
+    }
+  });
+
+  app.use(rateLimit(env.RATE_LIMIT_PER_MIN));
+  app.use(express.json());
+  // Tuần 4: gắn middleware đăng nhập (parse token) ngay đây; phân quyền gắn trong từng router.
+{{#each entities}}
+  app.use('/api/{{pluralKebab}}', {{camel}}Router);
+{{/each}}
+
+  app.use(notFound);
+  app.use(errorHandler);
+  return app;
+}

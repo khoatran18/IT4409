@@ -4,12 +4,12 @@ import {
   ValidationError,
   ValidationPipe,
 } from '@nestjs/common';
-import { parseTrustProxy } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/env.js';
-import { ConfigService } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/config.service.js';
+import { parseTrustProxy } from './config/env';
+import { ConfigService } from './config/config.service';
 import {
   ApiException,
   ErrorDetail,
-} from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/common/filters/all-exceptions.filter.js';
+} from './common/filters/all-exceptions.filter';
 
 function flatten(errors: ValidationError[], prefix = ''): ErrorDetail[] {
   return errors.flatMap((error) => {

@@ -243,6 +243,48 @@ describe('Studio API (e2e)', () => {
       expect(res.body.error.details[0].path).toBe('schema.entities.0.name');
     });
 
+    it('validate: schema hợp lệ trả valid=true', async () => {
+      const res = await http()
+        .post(`${API}/projects/${projectId}/validate`)
+        .set(bearer(staffToken))
+        .expect(200);
+      expect(res.body.data).toEqual({ valid: true, errors: [], warnings: [] });
+    });
+
+    it('validate: lỗi nghiệp vụ kèm path và code theo contract', async () => {
+      const broken = structuredClone(schoolAdminSample);
+      broken.pages[0].components[0].props = { columns: ['name'] };
+      const current = await http()
+        .get(`${API}/projects/${projectId}`)
+        .set(bearer(staffToken))
+        .expect(200);
+      await http()
+        .put(`${API}/projects/${projectId}`)
+        .set(bearer(staffToken))
+        .send({ schema: broken, version: current.body.data.version })
+        .expect(200);
+
+      const res = await http()
+        .post(`${API}/projects/${projectId}/validate`)
+        .set(bearer(staffToken))
+        .expect(200);
+      expect(res.body.data.valid).toBe(false);
+      expect(res.body.data.errors).toEqual([
+        {
+          path: 'pages[0].components[0].props.entity',
+          code: 'REQUIRED',
+          message: expect.any(String),
+        },
+      ]);
+    });
+
+    it('validate: người ngoài không thấy project (404)', async () => {
+      await http()
+        .post(`${API}/projects/${projectId}/validate`)
+        .set(bearer(otherToken))
+        .expect(404);
+    });
+
     it('chỉ admin xóa được project', async () => {
       await http()
         .delete(`${API}/projects/${projectId}`)

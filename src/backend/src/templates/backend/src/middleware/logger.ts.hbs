@@ -1,0 +1,21 @@
+import { randomUUID } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    id?: string;
+  }
+}
+
+export function logger(req: Request, res: Response, next: NextFunction) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  req.id = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.on('finish', () => {
+    console.log(
+      `${requestId} ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`,
+    );
+  });
+  next();
+}

@@ -1,5 +1,6 @@
 import type { FieldType } from '@codeflow/schema';
 import { camelCase, kebabCase, pascalCase, plural } from './case';
+import { json, prismaDefault, zodExpr } from './field';
 
 const PRISMA_TYPES: Record<FieldType, string> = {
   string: 'String',
@@ -19,6 +20,9 @@ export const helpers = {
   /** `${NAME:-fallback}`; viết thẳng trong .hbs sẽ dính `}}}` của Handlebars */
   shellVar: (name: string, fallback: string) => `\${${name}:-${fallback}}`,
   prismaType: (type: FieldType) => PRISMA_TYPES[type],
+  json,
+  zodExpr,
+  prismaDefault,
 };
 
 export { camelCase, kebabCase, pascalCase, plural };
