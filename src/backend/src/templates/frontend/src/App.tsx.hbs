@@ -1,0 +1,24 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import PagePlaceholder from './pages/PagePlaceholder'
+{{#each pages}}
+
+function {{componentName}}() {
+  return <PagePlaceholder title="{{title}}" />
+}
+{{/each}}
+
+export default function App() {
+  return (
+    <Routes>
+{{#if pages.length}}
+{{#unless (eq pages.0.route "/")}}
+      <Route path="/" element={<Navigate to="{{pages.0.route}}" replace />} />
+{{/unless}}
+{{/if}}
+{{#each pages}}
+      <Route path="{{route}}" element={<{{componentName}} />} />
+{{/each}}
+      <Route path="*" element={<PagePlaceholder title="404" />} />
+    </Routes>
+  )
+}

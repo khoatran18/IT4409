@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module.js';
-import { setupApp } from './app.setup.js';
-import { ConfigService } from '../../../../../CodeflowStudio/codeflow-studio/src/backend/src/config/config.service.js';
+import { AppModule } from './app.module';
+import { setupApp } from './app.setup';
+import { ConfigService } from './config/config.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
