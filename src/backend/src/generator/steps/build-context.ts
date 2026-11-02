@@ -1,16 +1,65 @@
-import type { PageContext, TemplateContext } from '@codeflow/schema';
+import type {
+  PageContext,
+  ProjectSchema,
+  TemplateContext,
+} from '@codeflow/schema';
+import { dbProfiles, type DbEnv } from '../db-profiles';
 import { kebabCase, pascalCase } from '../helpers/case';
+import type { DeployContext, DeployOptions } from '../types';
 import type { NormalizedProject } from './normalize';
+
+export type RenderContext = TemplateContext & { deploy: DeployContext };
 
 function pageComponentName(route: string, id: string): string {
   const base = pascalCase(route) || pascalCase(id);
   return `${base}Page`;
 }
 
-export function buildContext({
-  schema,
-  names,
-}: NormalizedProject): TemplateContext {
+function buildDeploy(
+  database: ProjectSchema['meta']['database'],
+  projectName: string,
+  options: DeployOptions,
+): DeployContext {
+  const profile = dbProfiles[database];
+  const composeEnv: DbEnv = {
+    host: 'db',
+    port: String(profile.defaultPort),
+    name: `\${DB_NAME:-${projectName}}`,
+    user: '${DB_USER:-app}',
+    password: '${DB_PASSWORD}',
+  };
+  const localEnv: DbEnv = {
+    host: 'localhost',
+    port: String(profile.defaultPort),
+    name: projectName,
+    user: 'app',
+    password: 'app',
+  };
+  return {
+    ...options,
+    db: {
+      id: profile.id,
+      prismaProvider: profile.prismaProvider,
+      image: profile.image,
+      port: profile.defaultPort,
+      service: profile.composeService({
+        ...composeEnv,
+        password: '${DB_PASSWORD:?đặt DB_PASSWORD trong .env}',
+      }),
+      composeUrl: profile.databaseUrl(composeEnv),
+      localUrl: profile.databaseUrl(localEnv),
+      env: Object.entries(profile.envDefaults).map(([key, value]) => ({
+        key,
+        value,
+      })),
+    },
+  };
+}
+
+export function buildContext(
+  { schema, names }: NormalizedProject,
+  deploy: DeployOptions,
+): RenderContext {
   const pages: PageContext[] = schema.pages.map((page) => ({
     id: page.id,
     route: page.route,
@@ -19,10 +68,12 @@ export function buildContext({
     requireRole: page.requireRole,
   }));
 
+  const kebabName = kebabCase(schema.meta.name) || 'app';
+
   return {
     project: {
       name: schema.meta.name,
-      kebabName: kebabCase(schema.meta.name),
+      kebabName,
       version: schema.meta.version,
     },
     db: { id: schema.meta.database },
@@ -44,5 +95,6 @@ export function buildContext({
     })),
     pages,
     schema,
+    deploy: buildDeploy(schema.meta.database, kebabName, deploy),
   };
 }

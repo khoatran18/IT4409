@@ -1,5 +1,7 @@
+import type { FieldContext, FieldType } from '@codeflow/schema';
+import { dbProfiles } from '../db-profiles';
 import { camelCase, kebabCase, pascalCase, plural } from './case';
-import { helpers } from './index';
+import { helpers, prismaField } from './index';
 
 describe('case helpers', () => {
   it.each([
@@ -36,8 +38,29 @@ describe('case helpers', () => {
     expect(helpers.shellVar('DB_NAME', 'shop')).toBe('${DB_NAME:-shop}');
   });
 
-  it('prismaType ánh xạ kiểu field', () => {
-    expect(helpers.prismaType('number')).toBe('Float');
-    expect(helpers.prismaType('date')).toBe('DateTime');
+  it('prismaField ghép kiểu theo typeMap của DbProfile', () => {
+    const field = (type: FieldType, required: boolean): FieldContext => ({
+      name: 'x',
+      type,
+      required,
+      unique: false,
+      options: [],
+    });
+    expect(
+      prismaField(dbProfiles.postgres.typeMap, field('number', true)),
+    ).toBe('Float');
+    expect(prismaField(dbProfiles.postgres.typeMap, field('date', false))).toBe(
+      'DateTime?',
+    );
+    expect(prismaField(dbProfiles.mysql.typeMap, field('text', false))).toBe(
+      'String? @db.Text',
+    );
+  });
+
+  it('dotenv bọc nháy đơn và từ chối ký tự không an toàn', () => {
+    expect(helpers.dotenv('a$b #c')).toBe("'a$b #c'");
+    expect(() => helpers.dotenv("it's")).toThrow();
+    expect(() => helpers.dotenv('a\\')).toThrow();
+    expect(() => helpers.dotenv('a\nb')).toThrow();
   });
 });
