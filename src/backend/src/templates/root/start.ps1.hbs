@@ -1,0 +1,59 @@
+$ErrorActionPreference = 'Stop'
+Set-Location -LiteralPath $PSScriptRoot
+
+function Fail([string]$message) {
+    Write-Host "Loi: $message" -ForegroundColor Red
+    exit 1
+}
+
+function Test-Docker([string]$arguments) {
+    cmd /c "docker $arguments >nul 2>&1"
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Read-Env([string]$name) {
+    $line = Get-Content -LiteralPath .env | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+    if (-not $line) { return '' }
+    return (($line -replace "^$name=", '') -replace "['""]", '').Trim()
+}
+
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Fail 'Chua cai Docker. Xem https://docs.docker.com/get-docker/ roi chay lai.'
+}
+if (-not (Test-Docker 'compose version')) {
+    Fail "Khong co 'docker compose'. Cai Docker Compose v2 roi chay lai."
+}
+if (-not (Test-Docker 'info')) {
+    Fail 'Docker chua chay. Hay khoi dong Docker Desktop roi chay lai.'
+}
+
+if (Test-Path -LiteralPath .env) {
+    Write-Host 'Giu nguyen .env hien co.'
+} else {
+    Copy-Item -LiteralPath .env.example -Destination .env
+    Write-Host 'Da tao .env tu .env.example.'
+}
+
+# docker compose ghi tien trinh ra stderr; khong de PowerShell coi do la loi
+$ErrorActionPreference = 'Continue'
+docker compose up -d --build --wait
+$exitCode = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+
+if ($exitCode -ne 0) {
+    Write-Host ''
+    Write-Host 'Khoi dong that bai. 30 dong log cuoi:' -ForegroundColor Red
+    $ErrorActionPreference = 'Continue'
+    docker compose logs --tail 30
+    $ErrorActionPreference = 'Stop'
+    Write-Host ''
+    Write-Host 'Nguyen nhan hay gap: cong bi chiem. Doi FRONTEND_PORT hoac DB_PORT trong .env roi chay lai.'
+    exit 1
+}
+
+$port = Read-Env 'FRONTEND_PORT'
+if (-not $port) { $port = '8080' }
+$admin = Read-Env 'ADMIN_EMAIL'
+Write-Host ''
+Write-Host "Ung dung da chay tai http://localhost:$port"
+Write-Host "Tai khoan admin: $admin (hay doi mat khau sau lan dang nhap dau)"

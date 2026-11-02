@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+fail() {
+  echo "Lỗi: $*" >&2
+  exit 1
+}
+
+command -v docker >/dev/null 2>&1 ||
+  fail "Chưa cài Docker. Xem https://docs.docker.com/get-docker/ rồi chạy lại."
+docker compose version >/dev/null 2>&1 ||
+  fail "Không có 'docker compose'. Cài Docker Compose v2 rồi chạy lại."
+docker info >/dev/null 2>&1 ||
+  fail "Docker chưa chạy. Hãy khởi động Docker rồi chạy lại."
+
+if [ -f .env ]; then
+  echo "Giữ nguyên .env hiện có."
+else
+  cp .env.example .env
+  echo "Đã tạo .env từ .env.example."
+fi
+
+read_env() {
+  grep -E "^$1=" .env | head -n 1 | cut -d= -f2- | tr -d "'\"" || true
+}
+
+if ! docker compose up -d --build --wait; then
+  echo >&2
+  echo "Khởi động thất bại. 30 dòng log cuối:" >&2
+  docker compose logs --tail 30 >&2 || true
+  echo >&2
+  echo "Nguyên nhân hay gặp: cổng bị chiếm. Đổi FRONTEND_PORT hoặc DB_PORT trong .env rồi chạy lại." >&2
+  exit 1
+fi
+
+port="$(read_env FRONTEND_PORT)"
+admin="$(read_env ADMIN_EMAIL)"
+echo
+echo "Ứng dụng đã chạy tại http://localhost:${port:-8080}"
+echo "Tài khoản admin: ${admin:-xem ADMIN_EMAIL trong .env} (hãy đổi mật khẩu sau lần đăng nhập đầu)"

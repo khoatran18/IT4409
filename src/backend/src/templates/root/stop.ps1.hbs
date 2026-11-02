@@ -1,0 +1,19 @@
+$ErrorActionPreference = 'Stop'
+Set-Location -LiteralPath $PSScriptRoot
+$purge = ($args -contains '--purge') -or ($args -contains '-purge')
+
+# docker compose ghi tien trinh ra stderr; khong de PowerShell coi do la loi
+$ErrorActionPreference = 'Continue'
+if ($purge) {
+    $answer = Read-Host "Xoa ca du lieu (database)? Khong the khoi phuc. Go 'yes' de xac nhan"
+    if ($answer -ne 'yes') {
+        Write-Host 'Da huy.'
+        exit 0
+    }
+    docker compose down -v
+    Write-Host 'Da dung va xoa du lieu.'
+} else {
+    docker compose down
+    Write-Host "Da dung. Du lieu duoc giu lai; dung '.\stop.ps1 --purge' de xoa."
+}
+exit $LASTEXITCODE

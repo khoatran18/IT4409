@@ -1,35 +1,36 @@
-services:
-  db:
-{{#if (eq db.id "mysql")}}
-    image: mysql:8
-    environment:
-      MYSQL_DATABASE: {{shellVar "DB_NAME" project.kebabName}}
-      MYSQL_USER: ${DB_USER:-app}
-      MYSQL_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
-      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-{{else}}
-    image: postgres:16
-    environment:
-      POSTGRES_DB: {{shellVar "DB_NAME" project.kebabName}}
-      POSTGRES_USER: ${DB_USER:-app}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d {{shellVar "DB_NAME" project.kebabName}}"]
-{{/if}}
-      interval: 5s
-      retries: 10
-    volumes:
-      - db_data:/var/lib/{{#if (eq db.id "mysql")}}mysql{{else}}postgresql/data{{/if}}
+name: {{project.kebabName}}
 
+services:
+{{{deploy.db.service}}}
   backend:
     build: ./backend
     environment:
-      JWT_SECRET: ${JWT_SECRET:?đặt JWT_SECRET trong .env}
       PORT: 3000
+      DATABASE_URL: {{shellVar "DATABASE_URL" deploy.db.composeUrl}}
+      JWT_SECRET: ${JWT_SECRET:?đặt JWT_SECRET trong .env}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-100}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      TRUST_PROXY: "1"
     depends_on:
       db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
         condition: service_healthy
 
 volumes:

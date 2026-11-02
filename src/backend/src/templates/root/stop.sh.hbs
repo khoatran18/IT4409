@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+if [ "${1:-}" = "--purge" ]; then
+  read -r -p "Xóa cả dữ liệu (database)? Không thể khôi phục. Gõ 'yes' để xác nhận: " answer
+  if [ "$answer" != "yes" ]; then
+    echo "Đã hủy."
+    exit 0
+  fi
+  docker compose down -v
+  echo "Đã dừng và xóa dữ liệu."
+else
+  docker compose down
+  echo "Đã dừng. Dữ liệu được giữ lại; dùng './stop.sh --purge' để xóa."
+fi

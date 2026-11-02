@@ -1,0 +1,51 @@
+# {{project.name}}
+
+Ứng dụng được sinh bởi CodeFlow Studio, gồm ba container: `frontend` (nginx + giao diện React), `backend` (Node + Prisma) và `db` ({{deploy.db.id}}).
+
+## Chạy
+
+Chỉ cần Docker (có `docker compose`).
+
+- Linux / macOS: `bash start.sh` (hoặc `chmod +x start.sh && ./start.sh`)
+- Windows: bấm đúp `start.bat`, hoặc chạy `start.ps1` trong PowerShell
+
+Script tự tạo `.env` từ `.env.example` nếu chưa có (giữ nguyên `.env` đã có), rồi chạy `docker compose up -d --build --wait`. Xong sẽ in địa chỉ truy cập, mặc định http://localhost:8080.
+
+Lần đầu build mất vài phút vì phải tải image và cài thư viện.
+
+## Dừng
+
+- `stop.sh` / `stop.bat`: dừng, giữ dữ liệu.
+- `stop.sh --purge`: dừng và xóa cả dữ liệu (có hỏi xác nhận).
+
+## Cấu hình (`.env`)
+
+| Biến | Ý nghĩa |
+|---|---|
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Database; `DB_PASSWORD` đã được sinh ngẫu nhiên |
+| `DB_PORT` | Cổng database mở ra máy host (chỉ localhost) |
+| `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Ký token đăng nhập |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Tài khoản admin đầu tiên |
+| `FRONTEND_PORT` | Cổng truy cập ứng dụng (mặc định 8080) |
+| `RATE_LIMIT_PER_MIN` | Giới hạn số request mỗi phút cho mỗi IP |
+| `CORS_ORIGIN` | Chỉ cần khi frontend chạy ở origin khác |
+| `DATABASE_URL` | Chỉ đặt khi dùng database ngoài docker compose |
+
+Cổng bị chiếm: đổi `FRONTEND_PORT` hoặc `DB_PORT` trong `.env` rồi chạy lại.
+
+## Bảo mật
+
+- `.env` và `.env.example` chứa secret và mật khẩu admin. Không commit `.env` lên git và không chia sẻ công khai.
+- Đổi mật khẩu admin sau lần đăng nhập đầu.
+- Khi triển khai thật, dùng secret mới (`DB_PASSWORD`, `JWT_SECRET`) và đặt ứng dụng sau HTTPS.
+- Không dùng chung secret giữa các ứng dụng.
+
+## Cấu trúc
+
+```
+frontend/              giao diện (Vite + React), nginx proxy /api sang backend
+backend/               API (Express + Prisma), prisma/schema.prisma
+docker-compose.yml
+.env.example
+start.* / stop.*
+```
