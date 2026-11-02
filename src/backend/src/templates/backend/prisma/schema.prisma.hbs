@@ -4,14 +4,14 @@ generator client {
 }
 
 datasource db {
-  provider = "{{#if (eq db.id "mysql")}}mysql{{else}}postgresql{{/if}}"
+  provider = "{{deploy.db.prismaProvider}}"
 }
 {{#each entities}}
 
 model {{pascal}} {
   id        String   @id @default(uuid())
 {{#each fields}}
-  {{name}} {{prismaType type}}{{#unless required}}?{{/unless}}{{#if unique}} @unique{{/if}}{{prismaDefault this}}
+  {{name}} {{prismaField this}}{{#if unique}} @unique{{/if}}{{prismaDefault this}}
 {{/each}}
 {{#if ownerOnly}}
   ownerId   String?
