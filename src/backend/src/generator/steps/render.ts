@@ -1,9 +1,11 @@
-import type { TemplateContext } from '@codeflow/schema';
+import type { FieldContext } from '@codeflow/schema';
 import Handlebars from 'handlebars';
 import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { helpers } from '../helpers';
+import { dbProfiles } from '../db-profiles';
+import { helpers, prismaField } from '../helpers';
 import type { GeneratedFile } from '../types';
+import type { RenderContext } from './build-context';
 
 export const TEMPLATES_DIR = join(__dirname, '..', '..', 'templates');
 
@@ -39,12 +41,16 @@ function outputPath(templatePath: string): string {
  * File `.hbs` render ra nội dung rỗng (chỉ khoảng trắng) thì bị bỏ qua, để template tự tắt theo điều kiện.
  */
 export function render(
-  context: TemplateContext,
+  context: RenderContext,
   templatesDir: string = TEMPLATES_DIR,
 ): GeneratedFile[] {
   const hbs = Handlebars.create();
   for (const [name, fn] of Object.entries(helpers))
     hbs.registerHelper(name, fn);
+  const { typeMap } = dbProfiles[context.db.id];
+  hbs.registerHelper('prismaField', (field: FieldContext) =>
+    prismaField(typeMap, field),
+  );
 
   const files: GeneratedFile[] = [];
 
