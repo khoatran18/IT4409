@@ -1,0 +1,150 @@
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
+import { errorMessage } from '../../api/errors'
+import type { ListMeta } from '../../api/types'
+import { useAuth } from '../../auth/AuthContext'
+import { formatValue } from '../../lib/fields'
+import type { {{entity.pascal}} } from '../../types/{{entity.kebab}}'
+
+const ENTITY = {{{json entity.name}}}
+const PAGE_SIZE = 10
+
+const pageStyle: CSSProperties = { padding: 24 }
+const barStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }
+const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse' }
+const cellStyle: CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #ddd', textAlign: 'left' }
+const sortableStyle: CSSProperties = { ...cellStyle, cursor: 'pointer', userSelect: 'none' }
+const actionsStyle: CSSProperties = { ...cellStyle, display: 'flex', gap: 8 }
+const pagerStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', marginTop: 16 }
+
+export default function {{entity.pascal}}List() {
+  const { can } = useAuth()
+  const [rows, setRows] = useState<{{entity.pascal}}[]>([])
+  const [meta, setMeta] = useState<ListMeta>({ page: 1, pageSize: PAGE_SIZE, total: 0 })
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    {{entity.camel}}Api
+      .list({ page, pageSize: PAGE_SIZE, q: q || undefined, sort: sort || undefined })
+      .then((result) => {
+        if (cancelled) return
+        setRows(result.data)
+        setMeta(result.meta)
+        setError('')
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [page, q, sort, reloadKey])
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    setPage(1)
+    setQ(search.trim())
+  }
+
+  function toggleSort(name: string) {
+    setPage(1)
+    setSort((current) => (current === `${name}:asc` ? `${name}:desc` : `${name}:asc`))
+  }
+
+  function sortMark(name: string): string {
+    if (sort === `${name}:asc`) return ' ▲'
+    return sort === `${name}:desc` ? ' ▼' : ''
+  }
+
+  async function handleDelete(row: {{entity.pascal}}) {
+    if (!window.confirm('Xóa bản ghi này?')) return
+    try {
+      await {{entity.camel}}Api.remove(row.id)
+      if (rows.length === 1 && page > 1) setPage(page - 1)
+      else setReloadKey((key) => key + 1)
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.pageSize))
+  const canUpdate = can(ENTITY, 'update')
+  const canDelete = can(ENTITY, 'delete')
+
+  return (
+    <main style={pageStyle}>
+      <h1>Danh sách {{entity.pascal}}</h1>
+      <div style={barStyle}>
+        <form onSubmit={handleSearch}>
+          <input type="search" placeholder="Tìm kiếm" value={search} onChange={(e) => setSearch(e.target.value)} />{' '}
+          <button type="submit">Tìm</button>
+        </form>
+        {can(ENTITY, 'create') && <Link to="/{{entity.pluralKebab}}/new">Thêm mới</Link>}
+      </div>
+      {error && <p role="alert">{error}</p>}
+      <table style={tableStyle}>
+        <thead>
+          <tr>
+{{#each entity.fields}}
+            <th style={sortableStyle} onClick={() => toggleSort({{{json this.name}}})}>
+              {{this.name}}
+              {sortMark({{{json this.name}}})}
+            </th>
+{{/each}}
+            {(canUpdate || canDelete) && <th style={cellStyle} />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+{{#each entity.fields}}
+{{#if @first}}
+              <td style={cellStyle}>
+                <Link to={`/{{@root.entity.pluralKebab}}/${row.id}`}>{formatValue(row.{{this.name}}, {{{json this.type}}}) || row.id}</Link>
+              </td>
+{{else}}
+              <td style={cellStyle}>{formatValue(row.{{this.name}}, {{{json this.type}}})}</td>
+{{/if}}
+{{/each}}
+              {(canUpdate || canDelete) && (
+                <td style={actionsStyle}>
+                  {canUpdate && <Link to={`/{{entity.pluralKebab}}/${row.id}/edit`}>Sửa</Link>}
+                  {canDelete && (
+                    <button type="button" onClick={() => void handleDelete(row)}>
+                      Xóa
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!loading && rows.length === 0 && !error && <p>Chưa có dữ liệu.</p>}
+      {loading && <p>Đang tải...</p>}
+      <div style={pagerStyle}>
+        <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          Trước
+        </button>
+        <span>
+          Trang {meta.page} / {totalPages} ({meta.total} bản ghi)
+        </span>
+        <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          Sau
+        </button>
+      </div>
+    </main>
+  )
+}

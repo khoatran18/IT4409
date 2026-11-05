@@ -1,0 +1,139 @@
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
+import { parseApiError } from '../../api/errors'
+import { initialValues, toPayload, validate, type FormValues } from '../../lib/fields'
+import { {{entity.camel}}Fields, type {{entity.pascal}}Input } from '../../types/{{entity.kebab}}'
+
+const pageStyle: CSSProperties = { padding: 24, maxWidth: 520 }
+const formStyle: CSSProperties = { display: 'grid', gap: 12 }
+const labelStyle: CSSProperties = { display: 'grid', gap: 4 }
+const checkStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' }
+const errorStyle: CSSProperties = { color: '#b91c1c', fontSize: 13 }
+const actionsStyle: CSSProperties = { display: 'flex', gap: 12, alignItems: 'center' }
+
+export default function {{entity.pascal}}Form() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const editing = id !== undefined
+  const [values, setValues] = useState<FormValues>(() => initialValues({{entity.camel}}Fields))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState('')
+  const [loading, setLoading] = useState(editing)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (id === undefined) return
+    let cancelled = false
+    {{entity.camel}}Api
+      .get(id)
+      .then((record) => {
+        if (!cancelled) setValues(initialValues({{entity.camel}}Fields, { ...record }))
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setFormError(parseApiError(e).message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  function setValue(name: string, value: string | boolean) {
+    setValues((current) => ({ ...current, [name]: value }))
+    setErrors((current) => ({ ...current, [name]: '' }))
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError('')
+    const clientErrors = validate({{entity.camel}}Fields, values)
+    setErrors(clientErrors)
+    if (Object.keys(clientErrors).length > 0) return
+
+    const payload = toPayload({{entity.camel}}Fields, values) as {{entity.pascal}}Input
+    setSaving(true)
+    try {
+      if (id === undefined) await {{entity.camel}}Api.create(payload)
+      else await {{entity.camel}}Api.update(id, payload)
+      navigate('/{{entity.pluralKebab}}')
+    } catch (err) {
+      const info = parseApiError(err)
+      setErrors(info.fields)
+      setFormError(Object.keys(info.fields).length > 0 ? '' : info.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <main style={pageStyle}>Đang tải...</main>
+
+  return (
+    <main style={pageStyle}>
+      <h1>{editing ? 'Sửa' : 'Thêm'} {{entity.pascal}}</h1>
+      <form style={formStyle} onSubmit={handleSubmit} noValidate>
+{{#each entity.fields}}
+{{#if (eq this.type "boolean")}}
+        <div>
+          <label style={checkStyle}>
+            <input
+              type="checkbox"
+              name={{{json this.name}}}
+              checked={Boolean(values[{{{json this.name}}}])}
+              onChange={(e) => setValue({{{json this.name}}}, e.target.checked)}
+            />
+            {{this.name}}
+          </label>
+          {errors[{{{json this.name}}}] && <span style={errorStyle}>{errors[{{{json this.name}}}]}</span>}
+        </div>
+{{else}}
+        <label style={labelStyle}>
+          <span>
+            {{this.name}}{{#if this.required}} *{{/if}}
+          </span>
+{{#if (eq this.type "text")}}
+          <textarea
+            name={{{json this.name}}}
+            rows={4}
+            value={String(values[{{{json this.name}}}])}
+            onChange={(e) => setValue({{{json this.name}}}, e.target.value)}
+          />
+{{else if (eq this.type "enum")}}
+          <select
+            name={{{json this.name}}}
+            value={String(values[{{{json this.name}}}])}
+            onChange={(e) => setValue({{{json this.name}}}, e.target.value)}
+          >
+            <option value="">-- chọn --</option>
+{{#each this.options}}
+            <option value={ {{{json this}}} }>{ {{{json this}}} }</option>
+{{/each}}
+          </select>
+{{else}}
+          <input
+            type="{{#if (eq this.type "number")}}number{{else if (eq this.type "date")}}date{{else}}text{{/if}}"
+{{#if (eq this.type "number")}}
+            step="any"
+{{/if}}
+            name={{{json this.name}}}
+            value={String(values[{{{json this.name}}}])}
+            onChange={(e) => setValue({{{json this.name}}}, e.target.value)}
+          />
+{{/if}}
+          {errors[{{{json this.name}}}] && <span style={errorStyle}>{errors[{{{json this.name}}}]}</span>}
+        </label>
+{{/if}}
+{{/each}}
+        {formError && <span role="alert" style={errorStyle}>{formError}</span>}
+        <div style={actionsStyle}>
+          <button type="submit" disabled={saving}>
+            {saving ? 'Đang lưu...' : 'Lưu'}
+          </button>
+          <Link to="/{{entity.pluralKebab}}">Hủy</Link>
+        </div>
+      </form>
+    </main>
+  )
+}

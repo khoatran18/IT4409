@@ -1,0 +1,76 @@
+import { useEffect, useState, type CSSProperties } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
+import { errorMessage } from '../../api/errors'
+import { useAuth } from '../../auth/AuthContext'
+import { formatDateTime, formatValue } from '../../lib/fields'
+import type { {{entity.pascal}} } from '../../types/{{entity.kebab}}'
+
+const ENTITY = {{{json entity.name}}}
+
+const pageStyle: CSSProperties = { padding: 24, maxWidth: 640 }
+const listStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8 }
+const actionsStyle: CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', marginTop: 16 }
+
+export default function {{entity.pascal}}Detail() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const { can } = useAuth()
+  const [record, setRecord] = useState<{{entity.pascal}} | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (id === undefined) return
+    let cancelled = false
+    {{entity.camel}}Api
+      .get(id)
+      .then((result) => {
+        if (!cancelled) setRecord(result)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  async function handleDelete() {
+    if (!record || !window.confirm('Xóa bản ghi này?')) return
+    try {
+      await {{entity.camel}}Api.remove(record.id)
+      navigate('/{{entity.pluralKebab}}')
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <main style={pageStyle}>
+      <h1>Chi tiết {{entity.pascal}}</h1>
+      {error && <p role="alert">{error}</p>}
+      {!record && !error && <p>Đang tải...</p>}
+      {record && (
+        <dl style={listStyle}>
+{{#each entity.fields}}
+          <dt>{{this.name}}</dt>
+          <dd>{formatValue(record.{{this.name}}, {{{json this.type}}})}</dd>
+{{/each}}
+          <dt>createdAt</dt>
+          <dd>{formatDateTime(record.createdAt)}</dd>
+          <dt>updatedAt</dt>
+          <dd>{formatDateTime(record.updatedAt)}</dd>
+        </dl>
+      )}
+      <div style={actionsStyle}>
+        <Link to="/{{entity.pluralKebab}}">Quay lại</Link>
+        {record && can(ENTITY, 'update') && <Link to={`/{{entity.pluralKebab}}/${record.id}/edit`}>Sửa</Link>}
+        {record && can(ENTITY, 'delete') && (
+          <button type="button" onClick={() => void handleDelete()}>
+            Xóa
+          </button>
+        )}
+      </div>
+    </main>
+  )
+}
