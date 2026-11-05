@@ -1,11 +1,11 @@
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { buildContext, listTemplates, render, root } from './render-helper';
 
 describe('template FE khung dự án', () => {
   const files = listTemplates(root);
 
   it('có đủ các template khung', () => {
-    const names = files.map((f) => relative(root, f)).sort();
+    const names = files.map((f) => relative(root, f).split(sep).join('/')).sort();
     expect(names).toEqual(
       [
         '.dockerignore.hbs',
