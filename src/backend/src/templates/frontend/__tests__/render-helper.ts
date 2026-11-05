@@ -25,7 +25,22 @@ export function buildContext(): TemplateContext {
     db: { id: 'postgres' },
     auth: { allowSelfRegister: false },
     roles: ['admin', 'user'],
-    entities: [],
+    entities: [
+      {
+        name: 'Student',
+        pascal: 'Student',
+        camel: 'student',
+        kebab: 'student',
+        plural: 'students',
+        pluralKebab: 'students',
+        ownerOnly: false,
+        fields: [
+          { name: 'name', type: 'string', required: true, unique: false, options: [] },
+          { name: 'grade', type: 'enum', required: false, unique: false, options: ['A', 'B "quoted"'] },
+        ],
+        permissions: { admin: 'CRUD', user: 'R' },
+      },
+    ],
     pages: [
       { id: 'p1', route: '/students', title: 'Sinh viên', componentName: 'StudentsPage', requireRole: ['admin', 'user'] },
       { id: 'p2', route: '/about', title: 'Giới thiệu "App" & more', componentName: 'AboutPage', requireRole: [] },
@@ -40,8 +55,9 @@ function escapes(file: string): boolean {
 }
 
 export function render(file: string, context: TemplateContext): string {
+  const data = file.includes('__entity__') ? { ...context, entity: context.entities[0] } : context;
   const hbs = Handlebars.create();
   hbs.registerHelper('eq', (a: unknown, b: unknown) => a === b);
   hbs.registerHelper('json', (value: unknown) => JSON.stringify(value));
-  return hbs.compile(readFileSync(file, 'utf8'), { strict: false, noEscape: !escapes(file) })(context);
+  return hbs.compile(readFileSync(file, 'utf8'), { strict: false, noEscape: !escapes(file) })(data);
 }
