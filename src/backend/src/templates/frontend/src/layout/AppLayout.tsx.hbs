@@ -1,0 +1,46 @@
+import type { CSSProperties } from 'react'
+import { NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
+
+interface MenuItem {
+  title: string
+  route: string
+  requireRole: string[]
+}
+
+const menu: MenuItem[] = [
+{{#each pages}}
+  { title: {{{json this.title}}}, route: {{{json this.route}}}, requireRole: {{{json this.requireRole}}} },
+{{/each}}
+]
+
+const shellStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '220px 1fr', minHeight: '100vh' }
+const sidebarStyle: CSSProperties = { display: 'grid', alignContent: 'start', gap: 8, padding: 16, borderRight: '1px solid #ddd' }
+const headerStyle: CSSProperties = { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, padding: 12, borderBottom: '1px solid #ddd' }
+
+export default function AppLayout() {
+  const { user, logout } = useAuth()
+  const items = menu.filter((item) => item.requireRole.length === 0 || (user !== null && item.requireRole.includes(user.role)))
+
+  return (
+    <div style={shellStyle}>
+      <nav style={sidebarStyle}>
+        <strong>{{project.name}}</strong>
+        {items.map((item) => (
+          <NavLink key={item.route} to={item.route}>
+            {item.title}
+          </NavLink>
+        ))}
+      </nav>
+      <div>
+        <header style={headerStyle}>
+          <span>{user?.email}</span>
+          <button type="button" onClick={logout}>
+            Đăng xuất
+          </button>
+        </header>
+        <Outlet />
+      </div>
+    </div>
+  )
+}

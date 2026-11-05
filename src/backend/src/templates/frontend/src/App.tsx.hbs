@@ -1,24 +1,46 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from './auth/AuthContext'
+import LoginPage from './auth/LoginPage'
+import ProtectedRoute from './auth/ProtectedRoute'
+import AppLayout from './layout/AppLayout'
 import PagePlaceholder from './pages/PagePlaceholder'
 {{#each pages}}
 
-function {{componentName}}() {
-  return <PagePlaceholder title="{{title}}" />
+function {{this.componentName}}() {
+  return <PagePlaceholder title="{{this.title}}" />
 }
 {{/each}}
 
 export default function App() {
   return (
-    <Routes>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
 {{#if pages.length}}
 {{#unless (eq pages.0.route "/")}}
-      <Route path="/" element={<Navigate to="{{pages.0.route}}" replace />} />
+          <Route path="/" element={<Navigate to="{{pages.0.route}}" replace />} />
 {{/unless}}
 {{/if}}
 {{#each pages}}
-      <Route path="{{route}}" element={<{{componentName}} />} />
+          <Route
+            path="{{this.route}}"
+            element={
+              <ProtectedRoute requireRole={ {{{json this.requireRole}}} }>
+                <{{this.componentName}} />
+              </ProtectedRoute>
+            }
+          />
 {{/each}}
-      <Route path="*" element={<PagePlaceholder title="404" />} />
-    </Routes>
+          <Route path="*" element={<PagePlaceholder title="404" />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   )
 }
