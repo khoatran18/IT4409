@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyProject, projectSchema, schoolAdminSample } from './index';
+import { createEmptyProject, inventorySample, projectSchema, schoolAdminSample } from './index';
 
 describe('projectSchema', () => {
   it('chấp nhận schema mẫu', () => {
     expect(projectSchema.safeParse(schoolAdminSample).success).toBe(true);
+    expect(projectSchema.safeParse(inventorySample).success).toBe(true);
   });
 
   it('điền default cho project rỗng', () => {
