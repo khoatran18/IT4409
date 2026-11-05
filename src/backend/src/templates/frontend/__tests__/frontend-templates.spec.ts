@@ -1,44 +1,5 @@
-import type { ProjectSchema, TemplateContext } from '@codeflow/schema';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import Handlebars from 'handlebars';
-
-const root = join(__dirname, '..');
-
-// exports của @codeflow/schema trỏ tới dist/index.cjs (không tồn tại) nên đọc thẳng dist/index.js.
-const { schoolAdminSample } = require(join(__dirname, '../../../../../schema/dist/index.js')) as {
-  schoolAdminSample: ProjectSchema;
-};
-
-function listTemplates(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (name === '__tests__') return [];
-    if (statSync(path).isDirectory()) return listTemplates(path);
-    return path.endsWith('.hbs') ? [path] : [];
-  });
-}
-
-function buildContext(): TemplateContext {
-  return {
-    project: { name: 'school-admin', kebabName: 'school-admin', version: 1 },
-    db: { id: 'postgres' },
-    auth: { allowSelfRegister: false },
-    roles: ['admin', 'user'],
-    entities: [],
-    pages: [
-      { id: 'p1', route: '/students', title: 'Sinh viên', componentName: 'StudentsPage', requireRole: ['admin', 'user'] },
-      { id: 'p2', route: '/about', title: 'Giới thiệu "App" & more', componentName: 'AboutPage', requireRole: [] },
-    ],
-    schema: schoolAdminSample,
-  };
-}
-
-function render(file: string, context: TemplateContext): string {
-  const hbs = Handlebars.create();
-  hbs.registerHelper('eq', (a: unknown, b: unknown) => a === b);
-  return hbs.compile(readFileSync(file, 'utf8'), { strict: false })(context);
-}
+import { buildContext, listTemplates, render, root } from './render-helper';
 
 describe('template FE khung dự án', () => {
   const files = listTemplates(root);
@@ -49,6 +10,11 @@ describe('template FE khung dự án', () => {
       [
         'Dockerfile.hbs',
         'index.html.hbs',
+        'src/api/client.ts.hbs',
+        'src/auth/AuthContext.tsx.hbs',
+        'src/auth/LoginPage.tsx.hbs',
+        'src/auth/ProtectedRoute.tsx.hbs',
+        'src/layout/AppLayout.tsx.hbs',
         'nginx.conf.hbs',
         'package.json.hbs',
         'src/App.tsx.hbs',
@@ -68,6 +34,7 @@ describe('template FE khung dự án', () => {
     const json = JSON.parse(render(join(root, 'package.json.hbs'), buildContext()));
     expect(json.name).toBe('school-admin-frontend');
     expect(json.dependencies).toHaveProperty('react-router-dom');
+    expect(json.dependencies).toHaveProperty('axios');
   });
 
   it('tsconfig.json hợp lệ', () => {
@@ -76,9 +43,12 @@ describe('template FE khung dự án', () => {
 
   it('App.tsx có route cho mỗi page, redirect "/" về trang đầu và route 404', () => {
     const app = render(join(root, 'src/App.tsx.hbs'), buildContext());
-    expect(app).toContain('<Route path="/students" element={<StudentsPage />} />');
-    expect(app).toContain('<Route path="/about" element={<AboutPage />} />');
+    expect(app).toContain('path="/students"');
+    expect(app).toContain('<StudentsPage />');
+    expect(app).toContain('path="/about"');
+    expect(app).toContain('<AboutPage />');
     expect(app).toContain('<Navigate to="/students" replace />');
+    expect(app).toContain('<Route path="/login" element={<LoginPage />} />');
     expect(app).toContain('path="*"');
     expect(app).toContain('title="Giới thiệu &quot;App&quot; &amp; more"');
   });
@@ -95,5 +65,28 @@ describe('template FE khung dự án', () => {
     const app = render(join(root, 'src/App.tsx.hbs'), context);
     expect(app).not.toContain('<Navigate');
     expect(app).not.toContain('{{');
+  });
+
+  it('App.tsx truyền requireRole của từng page vào ProtectedRoute', () => {
+    const app = render(join(root, 'src/App.tsx.hbs'), buildContext());
+    expect(app).toContain('<ProtectedRoute requireRole={ ["admin","user"] }>');
+    expect(app).toContain('<ProtectedRoute requireRole={ [] }>');
+  });
+
+  it('AppLayout sinh menu từ pages, giá trị người dùng đi qua json (không bị escape HTML)', () => {
+    const context = buildContext();
+    context.project.name = 'Quản lý <A&B>';
+    context.pages[1].title = 'Giới thiệu "App" & more';
+    const layout = render(join(root, 'src/layout/AppLayout.tsx.hbs'), context);
+    expect(layout).toContain('{ title: "Sinh viên", route: "/students", requireRole: ["admin","user"] },');
+    expect(layout).toContain('{ title: "Giới thiệu \\"App\\" & more", route: "/about", requireRole: [] },');
+    expect(layout).toContain('<strong>Quản lý &lt;A&amp;B&gt;</strong>');
+  });
+
+  it('client.ts dùng baseURL /api và xử lý 401', () => {
+    const client = render(join(root, 'src/api/client.ts.hbs'), buildContext());
+    expect(client).toContain("baseURL: '/api'");
+    expect(client).toContain('status === 401');
+    expect(client).toContain('Bearer ${token}');
   });
 });
