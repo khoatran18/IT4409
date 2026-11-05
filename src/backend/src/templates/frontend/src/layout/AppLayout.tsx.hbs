@@ -1,26 +1,40 @@
 import type { CSSProperties } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { isReserved } from '../routes'
 
 interface MenuItem {
   title: string
   route: string
   requireRole: string[]
+  /** Mục của trang entity: hiện khi role có quyền đọc entity */
+  entity?: string
 }
 
-const menu: MenuItem[] = [
+const entityMenu: MenuItem[] = [
+{{#each entities}}
+  { title: 'Danh sách {{this.pascal}}', route: '/{{this.pluralKebab}}', requireRole: [], entity: {{{json this.name}}} },
+{{/each}}
+]
+
+const pageMenu: MenuItem[] = [
 {{#each pages}}
   { title: {{{json this.title}}}, route: {{{json this.route}}}, requireRole: {{{json this.requireRole}}} },
 {{/each}}
-]
+].filter((item) => !isReserved(item.route))
+
+const menu: MenuItem[] = [...entityMenu, ...pageMenu]
 
 const shellStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '220px 1fr', minHeight: '100vh' }
 const sidebarStyle: CSSProperties = { display: 'grid', alignContent: 'start', gap: 8, padding: 16, borderRight: '1px solid #ddd' }
 const headerStyle: CSSProperties = { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, padding: 12, borderBottom: '1px solid #ddd' }
 
 export default function AppLayout() {
-  const { user, logout } = useAuth()
-  const items = menu.filter((item) => item.requireRole.length === 0 || (user !== null && item.requireRole.includes(user.role)))
+  const { user, can, logout } = useAuth()
+  const items = menu.filter((item) => {
+    if (item.entity) return can(item.entity, 'read')
+    return item.requireRole.length === 0 || (user !== null && item.requireRole.includes(user.role))
+  })
 
   return (
     <div style={shellStyle}>

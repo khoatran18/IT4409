@@ -1,0 +1,13 @@
+/** Route do trang entity (danh sách, thêm, chi tiết, sửa) chiếm; page tùy biến trùng route này bị bỏ qua. */
+export const reservedRoutes: string[] = [
+{{#each entities}}
+  '/{{this.pluralKebab}}',
+  '/{{this.pluralKebab}}/new',
+  '/{{this.pluralKebab}}/:id',
+  '/{{this.pluralKebab}}/:id/edit',
+{{/each}}
+]
+
+export function isReserved(route: string): boolean {
+  return reservedRoutes.includes(route)
+}

@@ -7,9 +7,22 @@ export interface AuthUser {
   role: string
 }
 
+const ACTION_CODES = { create: 'C', read: 'R', update: 'U', delete: 'D' } as const
+
+export type EntityAction = keyof typeof ACTION_CODES
+
+/** Ma trận quyền sinh từ schema: entity -> role -> chuỗi con của "CRUD" */
+const PERMISSIONS: Record<string, Record<string, string>> = {
+{{#each entities}}
+  {{{json this.name}}}: {{{json this.permissions}}},
+{{/each}}
+}
+
 interface AuthState {
   user: AuthUser | null
   loading: boolean
+  /** Quyền của role hiện tại trên entity; admin luôn được phép */
+  can: (entity: string, action: EntityAction) => boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -41,7 +54,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false))
   }, [logout])
 
-  const value = useMemo(() => ({ user, loading, login, logout }), [user, loading, login, logout])
+  const can = useCallback(
+    (entity: string, action: EntityAction) => {
+      if (!user) return false
+      if (user.role === 'admin') return true
+      return (PERMISSIONS[entity]?.[user.role] ?? '').includes(ACTION_CODES[action])
+    },
+    [user],
+  )
+
+  const value = useMemo(() => ({ user, loading, can, login, logout }), [user, loading, can, login, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

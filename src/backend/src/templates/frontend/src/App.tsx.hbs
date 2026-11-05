@@ -1,15 +1,34 @@
+import type { ReactElement } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import LoginPage from './auth/LoginPage'
 import ProtectedRoute from './auth/ProtectedRoute'
 import AppLayout from './layout/AppLayout'
 import PagePlaceholder from './pages/PagePlaceholder'
+import { isReserved } from './routes'
+{{#each entities}}
+import {{this.pascal}}List from './pages/{{this.kebab}}/ListPage'
+import {{this.pascal}}Form from './pages/{{this.kebab}}/FormPage'
+import {{this.pascal}}Detail from './pages/{{this.kebab}}/DetailPage'
+{{/each}}
 {{#each pages}}
 
 function {{this.componentName}}() {
   return <PagePlaceholder title="{{this.title}}" />
 }
 {{/each}}
+
+interface CustomPage {
+  route: string
+  requireRole: string[]
+  element: ReactElement
+}
+
+const customPages: CustomPage[] = [
+{{#each pages}}
+  { route: {{{json this.route}}}, requireRole: {{{json this.requireRole}}}, element: <{{this.componentName}} /> },
+{{/each}}
+].filter((page) => !isReserved(page.route))
 
 export default function App() {
   return (
@@ -27,17 +46,52 @@ export default function App() {
 {{#unless (eq pages.0.route "/")}}
           <Route path="/" element={<Navigate to="{{pages.0.route}}" replace />} />
 {{/unless}}
+{{else}}
+{{#if entities.length}}
+          <Route path="/" element={<Navigate to="/{{entities.0.pluralKebab}}" replace />} />
 {{/if}}
-{{#each pages}}
+{{/if}}
+{{#each entities}}
           <Route
-            path="{{this.route}}"
+            path="/{{this.pluralKebab}}"
             element={
-              <ProtectedRoute requireRole={ {{{json this.requireRole}}} }>
-                <{{this.componentName}} />
+              <ProtectedRoute entity={{{json this.name}}} action="read">
+                <{{this.pascal}}List />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/{{this.pluralKebab}}/new"
+            element={
+              <ProtectedRoute entity={{{json this.name}}} action="create">
+                <{{this.pascal}}Form />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/{{this.pluralKebab}}/:id"
+            element={
+              <ProtectedRoute entity={{{json this.name}}} action="read">
+                <{{this.pascal}}Detail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/{{this.pluralKebab}}/:id/edit"
+            element={
+              <ProtectedRoute entity={{{json this.name}}} action="update">
+                <{{this.pascal}}Form />
               </ProtectedRoute>
             }
           />
 {{/each}}
+          {customPages.map((page) => (
+            <Route
+              key={page.route}
+              path={page.route}
+              element={<ProtectedRoute requireRole={page.requireRole}>{page.element}</ProtectedRoute>}
+            />
+          ))}
           <Route path="*" element={<PagePlaceholder title="404" />} />
         </Route>
       </Routes>
