@@ -1,0 +1,31 @@
+import type { {{entity.pascal}}, {{entity.pascal}}Input } from '../types/{{entity.kebab}}'
+import { api } from './client'
+import type { ListParams, ListResult } from './types'
+
+const BASE = '/{{entity.pluralKebab}}'
+
+export const {{entity.camel}}Api = {
+  async list(params: ListParams = {}): Promise<ListResult<{{entity.pascal}}>> {
+    const res = await api.get<ListResult<{{entity.pascal}}>>(BASE, { params })
+    return res.data
+  },
+
+  async get(id: string): Promise<{{entity.pascal}}> {
+    const res = await api.get<{ data: {{entity.pascal}} }>(`${BASE}/${id}`)
+    return res.data.data
+  },
+
+  async create(input: {{entity.pascal}}Input): Promise<{{entity.pascal}}> {
+    const res = await api.post<{ data: {{entity.pascal}} }>(BASE, input)
+    return res.data.data
+  },
+
+  async update(id: string, input: {{entity.pascal}}Input): Promise<{{entity.pascal}}> {
+    const res = await api.put<{ data: {{entity.pascal}} }>(`${BASE}/${id}`, input)
+    return res.data.data
+  },
+
+  async remove(id: string): Promise<void> {
+    await api.delete(`${BASE}/${id}`)
+  },
+}

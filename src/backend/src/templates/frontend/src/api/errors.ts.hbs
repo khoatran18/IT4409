@@ -1,0 +1,36 @@
+import axios from 'axios'
+
+export interface ApiErrorInfo {
+  status?: number
+  code?: string
+  message: string
+  /** Lỗi theo field, lấy từ `error.details` (422 và 409) */
+  fields: Record<string, string>
+}
+
+interface ErrorBody {
+  error?: { code?: string; message?: string; details?: Array<{ path?: string; message?: string }> }
+}
+
+export function parseApiError(error: unknown): ApiErrorInfo {
+  if (!axios.isAxiosError<ErrorBody>(error)) {
+    return { message: 'Đã xảy ra lỗi không xác định', fields: {} }
+  }
+  const body = error.response?.data?.error
+  if (!error.response) return { message: 'Không kết nối được máy chủ', fields: {} }
+
+  const fields: Record<string, string> = {}
+  for (const detail of body?.details ?? []) {
+    if (detail.path && detail.message) fields[detail.path] = detail.message
+  }
+  return {
+    status: error.response.status,
+    code: body?.code,
+    message: body?.message ?? `Lỗi ${error.response.status}`,
+    fields,
+  }
+}
+
+export function errorMessage(error: unknown): string {
+  return parseApiError(error).message
+}

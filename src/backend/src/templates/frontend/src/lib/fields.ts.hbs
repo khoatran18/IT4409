@@ -1,0 +1,63 @@
+export type FieldType = 'string' | 'text' | 'number' | 'boolean' | 'date' | 'enum'
+
+export interface FieldMeta {
+  name: string
+  type: FieldType
+  required: boolean
+  unique: boolean
+  options: string[]
+  default?: string | number | boolean
+}
+
+/** Giá trị form: checkbox là boolean, còn lại là chuỗi nhập vào */
+export type FormValues = Record<string, string | boolean>
+
+export function initialValues(fields: FieldMeta[], record?: Record<string, unknown>): FormValues {
+  const values: FormValues = {}
+  for (const field of fields) {
+    const source = record ? record[field.name] : field.default
+    if (field.type === 'boolean') values[field.name] = Boolean(source)
+    else if (source === undefined || source === null) values[field.name] = ''
+    else values[field.name] = field.type === 'date' ? String(source).slice(0, 10) : String(source)
+  }
+  return values
+}
+
+export function validate(fields: FieldMeta[], values: FormValues): Record<string, string> {
+  const errors: Record<string, string> = {}
+  for (const field of fields) {
+    if (field.type === 'boolean') continue
+    const value = String(values[field.name] ?? '').trim()
+    if (value === '') {
+      if (field.required) errors[field.name] = 'Bắt buộc nhập'
+    } else if (field.type === 'number' && Number.isNaN(Number(value))) {
+      errors[field.name] = 'Phải là số'
+    } else if (field.type === 'enum' && !field.options.includes(value)) {
+      errors[field.name] = 'Giá trị không hợp lệ'
+    }
+  }
+  return errors
+}
+
+/** Chuyển giá trị form thành body gửi API; field tùy chọn để trống gửi null */
+export function toPayload(fields: FieldMeta[], values: FormValues): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  for (const field of fields) {
+    const value = values[field.name]
+    if (field.type === 'boolean') payload[field.name] = Boolean(value)
+    else if (String(value).trim() === '') payload[field.name] = null
+    else payload[field.name] = field.type === 'number' ? Number(value) : value
+  }
+  return payload
+}
+
+export function formatValue(value: unknown, type: FieldType): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (type === 'boolean') return value ? 'Có' : 'Không'
+  if (type === 'date') return new Date(String(value)).toLocaleDateString('vi-VN')
+  return String(value)
+}
+
+export function formatDateTime(value: unknown): string {
+  return value ? new Date(String(value)).toLocaleString('vi-VN') : ''
+}

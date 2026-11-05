@@ -1,0 +1,15 @@
+import type { FieldMeta } from '../lib/fields'
+
+export interface {{entity.pascal}} {
+  id: string
+{{#each entity.fields}}
+  {{this.name}}{{#unless this.required}}?{{/unless}}: {{#if (eq this.type "number")}}number{{else if (eq this.type "boolean")}}boolean{{else if (eq this.type "enum")}}{{#if this.options.length}}{{#each this.options}}{{{json this}}}{{#unless @last}} | {{/unless}}{{/each}}{{else}}string{{/if}}{{else}}string{{/if}}{{#unless this.required}} | null{{/unless}}
+{{/each}}
+  createdAt: string
+  updatedAt: string
+}
+
+/** Body tạo/sửa: server tự quản lý id, createdAt, updatedAt */
+export type {{entity.pascal}}Input = Omit<{{entity.pascal}}, 'id' | 'createdAt' | 'updatedAt'>
+
+export const {{entity.camel}}Fields: FieldMeta[] = {{{json entity.fields}}}
