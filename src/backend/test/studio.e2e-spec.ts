@@ -1,8 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createEmptyProject, schoolAdminSample } from '@codeflow/schema';
+import { unzipSync } from 'fflate';
 import { Redis } from 'ioredis';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import { AppModule } from '../src/app.module';
 import { setupApp } from '../src/app.setup';
 import { ConfigService } from '../src/config/config.service';
@@ -283,6 +284,119 @@ describe('Studio API (e2e)', () => {
         .post(`${API}/projects/${projectId}/validate`)
         .set(bearer(otherToken))
         .expect(404);
+    });
+
+    describe('generate', () => {
+      const admin = {
+        adminEmail: 'owner@shop.test',
+        adminPassword: 'Mat-khau-1',
+      };
+      const binary = (
+        res: Response,
+        done: (err: Error | null, body: Buffer) => void,
+      ) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => done(null, Buffer.concat(chunks)));
+      };
+      const generate = (token: string, body: object) =>
+        http()
+          .post(`${API}/projects/${projectId}/generate`)
+          .set(bearer(token))
+          .buffer(true)
+          .parse(binary)
+          .send(body);
+
+      it('schema không hợp lệ trả 422 với details như /validate', async () => {
+        const res = await http()
+          .post(`${API}/projects/${projectId}/generate`)
+          .set(bearer(staffToken))
+          .send(admin)
+          .expect(422);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
+        expect(res.body.error.details).toEqual([
+          {
+            path: 'pages[0].components[0].props.entity',
+            code: 'REQUIRED',
+            message: expect.any(String),
+          },
+        ]);
+      });
+
+      it('thân request sai trả 422: mật khẩu ngắn, email sai, ký tự cấm', async () => {
+        for (const body of [
+          { ...admin, adminPassword: '1234567' },
+          { ...admin, adminEmail: 'khong-phai-email' },
+          { ...admin, adminPassword: "co'dau-nhay-don" },
+          {},
+        ]) {
+          const res = await http()
+            .post(`${API}/projects/${projectId}/generate`)
+            .set(bearer(staffToken))
+            .send(body)
+            .expect(422);
+          expect(res.body.error.details.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('schema hợp lệ trả zip, secret khác nhau mỗi lần, không lộ cho người khác', async () => {
+        const current = await http()
+          .get(`${API}/projects/${projectId}`)
+          .set(bearer(staffToken))
+          .expect(200);
+        await http()
+          .put(`${API}/projects/${projectId}`)
+          .set(bearer(staffToken))
+          .send({
+            schema: schoolAdminSample,
+            version: current.body.data.version,
+          })
+          .expect(200);
+
+        const first = await generate(staffToken, admin).expect(200);
+        expect(first.headers['content-type']).toBe('application/zip');
+        expect(first.headers['content-disposition']).toBe(
+          'attachment; filename="school-admin.zip"',
+        );
+        const files = unzipSync(new Uint8Array(first.body as Buffer));
+        expect(Object.keys(files)).toEqual(
+          expect.arrayContaining([
+            'school-admin/start.sh',
+            'school-admin/docker-compose.yml',
+            'school-admin/backend/prisma/schema.prisma',
+          ]),
+        );
+        const env = (zip: typeof files) =>
+          Buffer.from(zip['school-admin/.env.example']).toString('utf8');
+        expect(env(files)).toContain("ADMIN_EMAIL='owner@shop.test'");
+        expect(env(files)).toContain("ADMIN_PASSWORD='Mat-khau-1'");
+
+        const second = await generate(staffToken, admin).expect(200);
+        const again = unzipSync(new Uint8Array(second.body as Buffer));
+        const secret = (zip: typeof files) =>
+          /^JWT_SECRET=(.+)$/m.exec(env(zip))?.[1];
+        expect(secret(again)).not.toBe(secret(files));
+
+        const after = await http()
+          .get(`${API}/projects/${projectId}`)
+          .set(bearer(staffToken))
+          .expect(200);
+        expect(JSON.stringify(after.body)).not.toContain('Mat-khau-1');
+      });
+
+      it('người không có quyền sửa không sinh được (403/404)', async () => {
+        const res = await generate(otherToken, admin);
+        expect([403, 404]).toContain(res.status);
+      });
+
+      it('giới hạn riêng cho generate trả 429', async () => {
+        const limit = app.get(ConfigService).env.GENERATE_RATE_LIMIT_PER_MIN;
+        await resetRateLimits();
+        for (let i = 0; i < limit; i++)
+          await generate(staffToken, { adminEmail: 'x' }).expect(422);
+        const blocked = await generate(staffToken, { adminEmail: 'x' });
+        expect(blocked.status).toBe(429);
+      });
     });
 
     it('chỉ admin xóa được project', async () => {

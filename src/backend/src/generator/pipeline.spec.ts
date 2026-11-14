@@ -8,13 +8,18 @@ import {
 import { generate } from './pipeline';
 import { buildContext } from './steps/build-context';
 import { nameForms, normalize } from './steps/normalize';
-import { SchemaValidationError } from './types';
+import { PLACEHOLDER_DEPLOY, SchemaValidationError } from './types';
 
 describe('generator pipeline', () => {
   it('sinh đúng bộ file từ schema mẫu', async () => {
     const files = await generate(schoolAdminSample);
     expect(files.map((f) => f.path)).toEqual([
+      '.env.example',
+      '.gitignore',
+      'README.md',
+      'backend/.dockerignore',
       'backend/.env.example',
+      'backend/Dockerfile',
       'backend/package.json',
       'backend/prisma.config.ts',
       'backend/prisma/schema.prisma',
@@ -38,10 +43,21 @@ describe('generator pipeline', () => {
       'frontend/nginx.conf',
       'frontend/package.json',
       'frontend/src/App.tsx',
+      'frontend/src/api/client.ts',
+      'frontend/src/auth/AuthContext.tsx',
+      'frontend/src/auth/LoginPage.tsx',
+      'frontend/src/auth/ProtectedRoute.tsx',
+      'frontend/src/layout/AppLayout.tsx',
       'frontend/src/main.tsx',
       'frontend/src/pages/PagePlaceholder.tsx',
       'frontend/tsconfig.json',
       'frontend/vite.config.ts',
+      'start.bat',
+      'start.ps1',
+      'start.sh',
+      'stop.bat',
+      'stop.ps1',
+      'stop.sh',
     ]);
   });
 
@@ -155,7 +171,7 @@ describe('generator pipeline', () => {
         '{{#if auth.allowSelfRegister}}x{{/if}}\n',
       );
 
-      const files = await generate(schoolAdminSample, dir);
+      const files = await generate(schoolAdminSample, { templatesDir: dir });
       expect(files).toEqual([
         { path: 'frontend/raw/{{keep}}.txt', content: 'giữ {{nguyên}}' },
         { path: 'frontend/src/api/student.api.ts', content: 'students;\n' },
@@ -183,7 +199,7 @@ describe('normalize / buildContext', () => {
   });
 
   it('buildContext trả đúng TemplateContext', () => {
-    const ctx = buildContext(normalize(schoolAdminSample));
+    const ctx = buildContext(normalize(schoolAdminSample), PLACEHOLDER_DEPLOY);
     expect(ctx.project).toEqual({
       name: 'school-admin',
       kebabName: 'school-admin',

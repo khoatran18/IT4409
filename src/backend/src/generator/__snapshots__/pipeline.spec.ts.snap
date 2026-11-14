@@ -3,6 +3,102 @@
 exports[`generator pipeline khớp snapshot 1`] = `
 [
   {
+    "content": "# Sinh tự động bởi CodeFlow Studio. start.sh / start.bat sẽ sao chép file này thành .env nếu chưa có.
+# Không commit .env lên git. Dùng secret mới khi triển khai thật.
+
+DB_NAME=school-admin
+DB_USER=app
+DB_PASSWORD=doi-mat-khau-db
+DB_PORT=5432
+
+JWT_SECRET=doi-gia-tri-nay-it-nhat-32-ky-tu-ngau-nhien
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_TTL=7d
+
+# Tài khoản admin đầu tiên của app; hãy đổi mật khẩu sau lần đăng nhập đầu
+ADMIN_EMAIL='admin@example.com'
+ADMIN_PASSWORD='doi-mat-khau-admin'
+
+FRONTEND_PORT=8080
+RATE_LIMIT_PER_MIN=100
+# Chỉ cần khi frontend chạy ở origin khác (khi đổi FRONTEND_PORT thì đổi theo)
+CORS_ORIGIN=http://localhost:8080
+
+# Chỉ đặt khi dùng database ngoài docker compose
+# DATABASE_URL=
+",
+    "path": ".env.example",
+  },
+  {
+    "content": ".env
+node_modules
+dist
+",
+    "path": ".gitignore",
+  },
+  {
+    "content": "# school-admin
+
+Ứng dụng được sinh bởi CodeFlow Studio, gồm ba container: \`frontend\` (nginx + giao diện React), \`backend\` (Node + Prisma) và \`db\` (postgres).
+
+## Chạy
+
+Chỉ cần Docker (có \`docker compose\`).
+
+- Linux / macOS: \`bash start.sh\` (hoặc \`chmod +x start.sh && ./start.sh\`)
+- Windows: bấm đúp \`start.bat\`, hoặc chạy \`start.ps1\` trong PowerShell
+
+Script tự tạo \`.env\` từ \`.env.example\` nếu chưa có (giữ nguyên \`.env\` đã có), rồi chạy \`docker compose up -d --build --wait\`. Xong sẽ in địa chỉ truy cập, mặc định http://localhost:8080.
+
+Lần đầu build mất vài phút vì phải tải image và cài thư viện.
+
+## Dừng
+
+- \`stop.sh\` / \`stop.bat\`: dừng, giữ dữ liệu.
+- \`stop.sh --purge\`: dừng và xóa cả dữ liệu (có hỏi xác nhận).
+
+## Cấu hình (\`.env\`)
+
+| Biến                                              | Ý nghĩa                                         |
+| ------------------------------------------------- | ----------------------------------------------- |
+| \`DB_NAME\`, \`DB_USER\`, \`DB_PASSWORD\`               | Database; \`DB_PASSWORD\` đã được sinh ngẫu nhiên |
+| \`DB_PORT\`                                         | Cổng database mở ra máy host (chỉ localhost)    |
+| \`JWT_SECRET\`, \`JWT_ACCESS_TTL\`, \`JWT_REFRESH_TTL\` | Ký token đăng nhập                              |
+| \`ADMIN_EMAIL\`, \`ADMIN_PASSWORD\`                   | Tài khoản admin đầu tiên                        |
+| \`FRONTEND_PORT\`                                   | Cổng truy cập ứng dụng (mặc định 8080)          |
+| \`RATE_LIMIT_PER_MIN\`                              | Giới hạn số request mỗi phút cho mỗi IP         |
+| \`CORS_ORIGIN\`                                     | Chỉ cần khi frontend chạy ở origin khác         |
+| \`DATABASE_URL\`                                    | Chỉ đặt khi dùng database ngoài docker compose  |
+
+Cổng bị chiếm: đổi \`FRONTEND_PORT\` hoặc \`DB_PORT\` trong \`.env\` rồi chạy lại.
+
+## Bảo mật
+
+- \`.env\` và \`.env.example\` chứa secret và mật khẩu admin. Không commit \`.env\` lên git và không chia sẻ công khai.
+- Đổi mật khẩu admin sau lần đăng nhập đầu.
+- Khi triển khai thật, dùng secret mới (\`DB_PASSWORD\`, \`JWT_SECRET\`) và đặt ứng dụng sau HTTPS.
+- Không dùng chung secret giữa các ứng dụng.
+
+## Cấu trúc
+
+\`\`\`
+frontend/              giao diện (Vite + React), nginx proxy /api sang backend
+backend/               API (Express + Prisma), prisma/schema.prisma
+docker-compose.yml
+.env.example
+start.* / stop.*
+\`\`\`
+",
+    "path": "README.md",
+  },
+  {
+    "content": "node_modules
+dist
+.env
+",
+    "path": "backend/.dockerignore",
+  },
+  {
     "content": "PORT=3000
 DATABASE_URL=postgresql://app:app@localhost:5432/school-admin
 RATE_LIMIT_PER_MIN=100
@@ -10,6 +106,31 @@ RATE_LIMIT_PER_MIN=100
 TRUST_PROXY=false
 ",
     "path": "backend/.env.example",
+  },
+  {
+    "content": "FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+FROM node:22-alpine
+# prisma cần openssl để chạy schema engine
+RUN apk add --no-cache openssl
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+COPY --from=build /app/dist ./dist
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+USER node
+EXPOSE 3000
+# Schema sinh ra chưa có thư mục migrations nên đồng bộ bằng db push (không tự xóa dữ liệu)
+CMD ["sh", "-c", "npx prisma db push && exec node dist/server.js"]
+",
+    "path": "backend/Dockerfile",
   },
   {
     "content": "{
@@ -28,13 +149,13 @@ TRUST_PROXY=false
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
     "pg": "^8.16.0",
+    "prisma": "^7.10.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",
-    "prisma": "^7.10.0",
     "typescript": "^5.9.0"
   }
 }
@@ -562,13 +683,19 @@ process.on('SIGINT', shutdown);
     "path": "backend/tsconfig.json",
   },
   {
-    "content": "services:
+    "content": "name: school-admin
+
+services:
   db:
     image: postgres:16
     environment:
       POSTGRES_DB: \${DB_NAME:-school-admin}
       POSTGRES_USER: \${DB_USER:-app}
       POSTGRES_PASSWORD: \${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
+    ports:
+      - '127.0.0.1:\${DB_PORT:-5432}:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
@@ -576,17 +703,39 @@ process.on('SIGINT', shutdown);
           'pg_isready -U \${DB_USER:-app} -d \${DB_NAME:-school-admin}',
         ]
       interval: 5s
+      timeout: 5s
       retries: 10
-    volumes:
-      - db_data:/var/lib/postgresql/data
 
   backend:
     build: ./backend
     environment:
-      JWT_SECRET: \${JWT_SECRET:?đặt JWT_SECRET trong .env}
       PORT: 3000
+      DATABASE_URL: \${DATABASE_URL:-postgresql://\${DB_USER:-app}:\${DB_PASSWORD}@db:5432/\${DB_NAME:-school-admin}}
+      JWT_SECRET: \${JWT_SECRET:?đặt JWT_SECRET trong .env}
+      JWT_ACCESS_TTL: \${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: \${JWT_REFRESH_TTL:-7d}
+      ADMIN_EMAIL: \${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: \${ADMIN_PASSWORD:-}
+      RATE_LIMIT_PER_MIN: \${RATE_LIMIT_PER_MIN:-100}
+      CORS_ORIGIN: \${CORS_ORIGIN:-http://localhost:8080}
+      TRUST_PROXY: '1'
     depends_on:
       db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - '\${FRONTEND_PORT:-8080}:80'
+    depends_on:
+      backend:
         condition: service_healthy
 
 volumes:
@@ -656,6 +805,7 @@ EXPOSE 80
     "preview": "vite preview"
   },
   "dependencies": {
+    "axios": "^1.20.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.9.0"
@@ -673,6 +823,10 @@ EXPOSE 80
   },
   {
     "content": "import { Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthContext';
+import LoginPage from './auth/LoginPage';
+import ProtectedRoute from './auth/ProtectedRoute';
+import AppLayout from './layout/AppLayout';
 import PagePlaceholder from './pages/PagePlaceholder';
 
 function StudentsPage() {
@@ -681,15 +835,321 @@ function StudentsPage() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/students" replace />} />
-      <Route path="/students" element={<StudentsPage />} />
-      <Route path="*" element={<PagePlaceholder title="404" />} />
-    </Routes>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/" element={<Navigate to="/students" replace />} />
+          <Route
+            path="/students"
+            element={
+              <ProtectedRoute requireRole={['admin', 'user']}>
+                <StudentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<PagePlaceholder title="404" />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
 ",
     "path": "frontend/src/App.tsx",
+  },
+  {
+    "content": "import axios from 'axios';
+
+const TOKEN_KEY = 'accessToken';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+let unauthorizedHandler: () => void = () => {};
+
+/** AuthContext đăng ký hàm này để đăng xuất khi server trả 401. */
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler;
+}
+
+export const api = axios.create({ baseURL: '/api' });
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = \`Bearer \${token}\`;
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    const isLogin =
+      axios.isAxiosError(error) && error.config?.url === '/auth/login';
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 401 &&
+      !isLogin
+    ) {
+      clearToken();
+      unauthorizedHandler();
+    }
+    return Promise.reject(error);
+  },
+);
+",
+    "path": "frontend/src/api/client.ts",
+  },
+  {
+    "content": "import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  api,
+  clearToken,
+  getToken,
+  onUnauthorized,
+  setToken,
+} from '../api/client';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: string;
+}
+
+interface AuthState {
+  user: AuthUser | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(() => getToken() !== null);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const res = await api.post('/auth/login', { email, password });
+    setToken(res.data.data.accessToken);
+    setUser(res.data.data.user as AuthUser);
+  }, []);
+
+  useEffect(() => {
+    onUnauthorized(logout);
+    if (getToken() === null) return;
+    api
+      .get('/auth/me')
+      .then((res) => setUser(res.data.data as AuthUser))
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
+  }, [logout]);
+
+  const value = useMemo(
+    () => ({ user, loading, login, logout }),
+    [user, loading, login, logout],
+  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthState {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth phải nằm trong AuthProvider');
+  return context;
+}
+",
+    "path": "frontend/src/auth/AuthContext.tsx",
+  },
+  {
+    "content": "import { useState, type FormEvent } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+
+const style = { padding: 24, maxWidth: 360 };
+const formStyle = { display: 'grid', gap: 12 };
+
+export default function LoginPage() {
+  const { user, login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
+
+  if (user) return <Navigate to={from} replace />;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    try {
+      await login(email, password);
+      navigate(from, { replace: true });
+    } catch {
+      setError('Sai email hoặc mật khẩu');
+    }
+  }
+
+  return (
+    <main style={style}>
+      <h1>Đăng nhập</h1>
+      <form style={formStyle} onSubmit={handleSubmit}>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Mật khẩu"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        {error && <span role="alert">{error}</span>}
+        <button type="submit">Đăng nhập</button>
+      </form>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/auth/LoginPage.tsx",
+  },
+  {
+    "content": "import type { ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+
+const style = { padding: 24 };
+
+interface ProtectedRouteProps {
+  /** Rỗng hoặc bỏ trống: chỉ cần đăng nhập */
+  requireRole?: string[];
+  children: ReactNode;
+}
+
+export default function ProtectedRoute({
+  requireRole = [],
+  children,
+}: ProtectedRouteProps) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) return null;
+  if (!user) {
+    const state = { from: location.pathname };
+    return <Navigate to="/login" state={state} replace />;
+  }
+  if (requireRole.length > 0 && !requireRole.includes(user.role)) {
+    return (
+      <main style={style}>
+        <h1>403</h1>
+        <p>Bạn không có quyền truy cập trang này.</p>
+      </main>
+    );
+  }
+  return <>{children}</>;
+}
+",
+    "path": "frontend/src/auth/ProtectedRoute.tsx",
+  },
+  {
+    "content": "import type { CSSProperties } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+
+interface MenuItem {
+  title: string;
+  route: string;
+  requireRole: string[];
+}
+
+const menu: MenuItem[] = [
+  { title: 'Sinh viên', route: '/students', requireRole: ['admin', 'user'] },
+];
+
+const shellStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '220px 1fr',
+  minHeight: '100vh',
+};
+const sidebarStyle: CSSProperties = {
+  display: 'grid',
+  alignContent: 'start',
+  gap: 8,
+  padding: 16,
+  borderRight: '1px solid #ddd',
+};
+const headerStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  alignItems: 'center',
+  gap: 12,
+  padding: 12,
+  borderBottom: '1px solid #ddd',
+};
+
+export default function AppLayout() {
+  const { user, logout } = useAuth();
+  const items = menu.filter(
+    (item) =>
+      item.requireRole.length === 0 ||
+      (user !== null && item.requireRole.includes(user.role)),
+  );
+
+  return (
+    <div style={shellStyle}>
+      <nav style={sidebarStyle}>
+        <strong>school-admin</strong>
+        {items.map((item) => (
+          <NavLink key={item.route} to={item.route}>
+            {item.title}
+          </NavLink>
+        ))}
+      </nav>
+      <div>
+        <header style={headerStyle}>
+          <span>{user?.email}</span>
+          <button type="button" onClick={logout}>
+            Đăng xuất
+          </button>
+        </header>
+        <Outlet />
+      </div>
+    </div>
+  );
+}
+",
+    "path": "frontend/src/layout/AppLayout.tsx",
   },
   {
     "content": "import { StrictMode } from 'react';
@@ -753,11 +1213,187 @@ export default defineConfig({
 ",
     "path": "frontend/vite.config.ts",
   },
+  {
+    "content": "@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
+set EXITCODE=%ERRORLEVEL%
+pause
+exit /b %EXITCODE%
+",
+    "path": "start.bat",
+  },
+  {
+    "content": "$ErrorActionPreference = 'Stop'
+Set-Location -LiteralPath $PSScriptRoot
+
+function Fail([string]$message) {
+    Write-Host "Loi: $message" -ForegroundColor Red
+    exit 1
+}
+
+function Test-Docker([string]$arguments) {
+    cmd /c "docker $arguments >nul 2>&1"
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Read-Env([string]$name) {
+    $line = Get-Content -LiteralPath .env | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+    if (-not $line) { return '' }
+    return (($line -replace "^$name=", '') -replace "['""]", '').Trim()
+}
+
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Fail 'Chua cai Docker. Xem https://docs.docker.com/get-docker/ roi chay lai.'
+}
+if (-not (Test-Docker 'compose version')) {
+    Fail "Khong co 'docker compose'. Cai Docker Compose v2 roi chay lai."
+}
+if (-not (Test-Docker 'info')) {
+    Fail 'Docker chua chay. Hay khoi dong Docker Desktop roi chay lai.'
+}
+
+if (Test-Path -LiteralPath .env) {
+    Write-Host 'Giu nguyen .env hien co.'
+} else {
+    Copy-Item -LiteralPath .env.example -Destination .env
+    Write-Host 'Da tao .env tu .env.example.'
+}
+
+# docker compose ghi tien trinh ra stderr; khong de PowerShell coi do la loi
+$ErrorActionPreference = 'Continue'
+docker compose up -d --build --wait
+$exitCode = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+
+if ($exitCode -ne 0) {
+    Write-Host ''
+    Write-Host 'Khoi dong that bai. 30 dong log cuoi:' -ForegroundColor Red
+    $ErrorActionPreference = 'Continue'
+    docker compose logs --tail 30
+    $ErrorActionPreference = 'Stop'
+    Write-Host ''
+    Write-Host 'Nguyen nhan hay gap: cong bi chiem. Doi FRONTEND_PORT hoac DB_PORT trong .env roi chay lai.'
+    exit 1
+}
+
+$port = Read-Env 'FRONTEND_PORT'
+if (-not $port) { $port = '8080' }
+$admin = Read-Env 'ADMIN_EMAIL'
+Write-Host ''
+Write-Host "Ung dung da chay tai http://localhost:$port"
+Write-Host "Tai khoan admin: $admin (hay doi mat khau sau lan dang nhap dau)"
+",
+    "path": "start.ps1",
+  },
+  {
+    "content": "#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "\${BASH_SOURCE[0]}")"
+
+fail() {
+  echo "Lỗi: $*" >&2
+  exit 1
+}
+
+command -v docker >/dev/null 2>&1 ||
+  fail "Chưa cài Docker. Xem https://docs.docker.com/get-docker/ rồi chạy lại."
+docker compose version >/dev/null 2>&1 ||
+  fail "Không có 'docker compose'. Cài Docker Compose v2 rồi chạy lại."
+docker info >/dev/null 2>&1 ||
+  fail "Docker chưa chạy. Hãy khởi động Docker rồi chạy lại."
+
+if [ -f .env ]; then
+  echo "Giữ nguyên .env hiện có."
+else
+  cp .env.example .env
+  echo "Đã tạo .env từ .env.example."
+fi
+
+read_env() {
+  grep -E "^$1=" .env | head -n 1 | cut -d= -f2- | tr -d "'\\"\\r" || true
+}
+
+if ! docker compose up -d --build --wait; then
+  echo >&2
+  echo "Khởi động thất bại. 30 dòng log cuối:" >&2
+  docker compose logs --tail 30 >&2 || true
+  echo >&2
+  echo "Nguyên nhân hay gặp: cổng bị chiếm. Đổi FRONTEND_PORT hoặc DB_PORT trong .env rồi chạy lại." >&2
+  exit 1
+fi
+
+port="$(read_env FRONTEND_PORT)"
+admin="$(read_env ADMIN_EMAIL)"
+echo
+echo "Ứng dụng đã chạy tại http://localhost:\${port:-8080}"
+echo "Tài khoản admin: \${admin:-xem ADMIN_EMAIL trong .env} (hãy đổi mật khẩu sau lần đăng nhập đầu)"
+",
+    "path": "start.sh",
+  },
+  {
+    "content": "@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop.ps1" %*
+set EXITCODE=%ERRORLEVEL%
+pause
+exit /b %EXITCODE%
+",
+    "path": "stop.bat",
+  },
+  {
+    "content": "$ErrorActionPreference = 'Stop'
+Set-Location -LiteralPath $PSScriptRoot
+$purge = ($args -contains '--purge') -or ($args -contains '-purge')
+
+# docker compose ghi tien trinh ra stderr; khong de PowerShell coi do la loi
+$ErrorActionPreference = 'Continue'
+if ($purge) {
+    $answer = Read-Host "Xoa ca du lieu (database)? Khong the khoi phuc. Go 'yes' de xac nhan"
+    if ($answer -ne 'yes') {
+        Write-Host 'Da huy.'
+        exit 0
+    }
+    docker compose down -v
+    Write-Host 'Da dung va xoa du lieu.'
+} else {
+    docker compose down
+    Write-Host "Da dung. Du lieu duoc giu lai; dung '.\\stop.ps1 --purge' de xoa."
+}
+exit $LASTEXITCODE
+",
+    "path": "stop.ps1",
+  },
+  {
+    "content": "#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "\${BASH_SOURCE[0]}")"
+
+if [ "\${1:-}" = "--purge" ]; then
+  read -r -p "Xóa cả dữ liệu (database)? Không thể khôi phục. Gõ 'yes' để xác nhận: " answer
+  if [ "$answer" != "yes" ]; then
+    echo "Đã hủy."
+    exit 0
+  fi
+  docker compose down -v
+  echo "Đã dừng và xóa dữ liệu."
+else
+  docker compose down
+  echo "Đã dừng. Dữ liệu được giữ lại; dùng './stop.sh --purge' để xóa."
+fi
+",
+    "path": "stop.sh",
+  },
 ]
 `;
 
 exports[`generator pipeline khớp snapshot với schema mẫu thứ hai 1`] = `
 [
+  {
+    "content": "node_modules
+dist
+.env
+",
+    "path": "backend/.dockerignore",
+  },
   {
     "content": "PORT=3000
 DATABASE_URL=postgresql://app:app@localhost:5432/inventory
@@ -766,6 +1402,31 @@ RATE_LIMIT_PER_MIN=100
 TRUST_PROXY=false
 ",
     "path": "backend/.env.example",
+  },
+  {
+    "content": "FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+FROM node:22-alpine
+# prisma cần openssl để chạy schema engine
+RUN apk add --no-cache openssl
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+COPY --from=build /app/dist ./dist
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+USER node
+EXPOSE 3000
+# Schema sinh ra chưa có thư mục migrations nên đồng bộ bằng db push (không tự xóa dữ liệu)
+CMD ["sh", "-c", "npx prisma db push && exec node dist/server.js"]
+",
+    "path": "backend/Dockerfile",
   },
   {
     "content": "{
@@ -784,13 +1445,13 @@ TRUST_PROXY=false
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
     "pg": "^8.16.0",
+    "prisma": "^7.10.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",
-    "prisma": "^7.10.0",
     "typescript": "^5.9.0"
   }
 }
