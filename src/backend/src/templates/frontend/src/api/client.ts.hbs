@@ -1,0 +1,42 @@
+import axios from 'axios'
+
+const TOKEN_KEY = 'accessToken'
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+let unauthorizedHandler: () => void = () => {}
+
+/** AuthContext đăng ký hàm này để đăng xuất khi server trả 401. */
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler
+}
+
+export const api = axios.create({ baseURL: '/api' })
+
+api.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    const isLogin = axios.isAxiosError(error) && error.config?.url === '/auth/login'
+    if (axios.isAxiosError(error) && error.response?.status === 401 && !isLogin) {
+      clearToken()
+      unauthorizedHandler()
+    }
+    return Promise.reject(error)
+  },
+)
