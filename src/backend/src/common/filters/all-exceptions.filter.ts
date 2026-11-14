@@ -12,6 +12,7 @@ import { AppRequest } from '../types';
 export interface ErrorDetail {
   path: string;
   message: string;
+  code?: string;
 }
 
 export class ApiException extends HttpException {

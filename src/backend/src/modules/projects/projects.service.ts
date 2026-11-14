@@ -55,6 +55,10 @@ export class ProjectsService {
     return this.findAccessible(user, id, 'view');
   }
 
+  getForEdit(user: AuthUser, id: string) {
+    return this.findAccessible(user, id, 'edit');
+  }
+
   async save(user: AuthUser, id: string, schema: unknown, version: number) {
     await this.findAccessible(user, id, 'edit');
 

@@ -9,6 +9,7 @@ const envSchema = z.object({
   JWT_REFRESH_TTL: z.string().default('7d'),
   RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
   LOGIN_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(10),
+  GENERATE_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(10),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.string().default('false'),
 });

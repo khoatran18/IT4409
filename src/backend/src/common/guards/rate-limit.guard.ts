@@ -30,6 +30,13 @@ export class RateLimitGuard implements CanActivate {
     private readonly config: ConfigService,
   ) {}
 
+  private limitOf(scope: RateLimitScope | 'default'): number {
+    const { env } = this.config;
+    if (scope === 'login') return env.LOGIN_RATE_LIMIT_PER_MIN;
+    if (scope === 'generate') return env.GENERATE_RATE_LIMIT_PER_MIN;
+    return env.RATE_LIMIT_PER_MIN;
+  }
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const http = context.switchToHttp();
     const req = http.getRequest<AppRequest>();
@@ -40,10 +47,7 @@ export class RateLimitGuard implements CanActivate {
         RATE_LIMIT_KEY,
         [context.getHandler(), context.getClass()],
       ) ?? 'default';
-    const limit =
-      scope === 'login'
-        ? this.config.env.LOGIN_RATE_LIMIT_PER_MIN
-        : this.config.env.RATE_LIMIT_PER_MIN;
+    const limit = this.limitOf(scope);
 
     const key = `rate:${scope}:${req.ip}`;
     let count: number;
