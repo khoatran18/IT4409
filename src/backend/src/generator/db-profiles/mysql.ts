@@ -27,7 +27,7 @@ export const mysql: DbProfile = {
 `,
   typeMap: {
     string: 'String',
-    text: 'String',
+    text: 'String @db.Text',
     number: 'Float',
     boolean: 'Boolean',
     date: 'DateTime',

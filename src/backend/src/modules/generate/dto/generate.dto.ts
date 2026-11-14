@@ -16,7 +16,7 @@ export class GenerateDto {
   adminEmail: string;
 
   @IsString()
-  @MinLength(6, { message: 'Mật khẩu cần ít nhất 8 ký tự' })
+  @MinLength(8, { message: 'Mật khẩu cần ít nhất 8 ký tự' })
   @MaxLength(128)
   @Matches(/^[^'\\\p{Cc}]*$/u, {
     message: "Mật khẩu không được chứa dấu ' , dấu \\ hoặc ký tự điều khiển",

@@ -22,7 +22,7 @@ else
 fi
 
 read_env() {
-  grep -E "^$1=" .env | head -n 1 | cut -d= -f2- | tr -d "'\"" || true
+  grep -E "^$1=" .env | head -n 1 | cut -d= -f2- | tr -d "'\"\r" || true
 }
 
 if ! docker compose up -d --build --wait; then

@@ -4,6 +4,7 @@ import type { GeneratedFile } from '../types';
 /** Kết thúc dòng theo đuôi file; đuôi không khai báo dùng LF. Windows cần CRLF cho .ps1 và .bat. */
 export const EOL_BY_EXTENSION: Record<string, '\n' | '\r\n'> = {
   '.ps1': '\r\n',
+  '.bat': '\r\n',
   '.cmd': '\r\n',
 };
 

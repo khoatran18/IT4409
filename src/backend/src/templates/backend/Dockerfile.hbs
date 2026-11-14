@@ -6,6 +6,8 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine
+# prisma cần openssl để chạy schema engine
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
