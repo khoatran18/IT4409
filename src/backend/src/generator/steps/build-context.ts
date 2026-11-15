@@ -1,10 +1,18 @@
-import type { PageContext, TemplateContext } from '@codeflow/schema';
+import type { PageContext, ProjectSchema, TemplateContext } from '@codeflow/schema';
 import { kebabCase, pascalCase } from '../helpers/case';
 import type { NormalizedProject } from './normalize';
 
 function pageComponentName(route: string, id: string): string {
   const base = pascalCase(route) || pascalCase(id);
   return `${base}Page`;
+}
+
+function displayFieldOf(entity: ProjectSchema['entities'][number]): string {
+  return (
+    entity.displayField ??
+    entity.fields.find((field) => field.type === 'string')?.name ??
+    'id'
+  );
 }
 
 export function buildContext({
@@ -19,6 +27,7 @@ export function buildContext({
     requireRole: page.requireRole,
   }));
 
+  const entityByName = new Map(schema.entities.map((entity) => [entity.name, entity]));
   return {
     project: {
       name: schema.meta.name,
@@ -32,14 +41,28 @@ export function buildContext({
       ...names[entity.name],
       name: entity.name,
       ownerOnly: entity.ownerOnly,
-      fields: entity.fields.map((field) => ({
-        name: field.name,
-        type: field.type,
-        required: field.required ?? false,
-        unique: field.unique ?? false,
-        options: field.options ?? [],
-        ...(field.default !== undefined ? { default: field.default } : {}),
-      })),
+      displayField: displayFieldOf(entity),
+      fields: entity.fields.map((field) => {
+        const target = field.entity ? entityByName.get(field.entity) : undefined;
+        return {
+          name: field.name,
+          type: field.type,
+          required: field.required ?? false,
+          unique: field.unique ?? false,
+          options: field.options ?? [],
+          ...(field.default !== undefined ? { default: field.default } : {}),
+          ...(field.type === 'ref' && target
+            ? {
+                ref: {
+                  ...names[target.name],
+                  name: target.name,
+                  displayField: displayFieldOf(target),
+                  idName: field.name + 'Id',
+                },
+              }
+            : {}),
+        };
+      }),
       permissions: schema.permissions[entity.name] ?? {},
     })),
     pages,

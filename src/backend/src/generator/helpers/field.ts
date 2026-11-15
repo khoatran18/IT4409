@@ -25,6 +25,9 @@ export function zodExpr(field: FieldContext): string {
     case 'enum':
       expr = `z.enum([${field.options.map(json).join(', ')}])`;
       break;
+    case 'ref':
+      expr = 'z.string().min(1)';
+      break;
   }
   if (field.default !== undefined && field.type !== 'date') {
     return `${expr}.default(${json(field.default)})${field.required ? '' : '.nullable()'}`;

@@ -22,6 +22,8 @@ export function sampleValue(field: Field, index: number): string | number | bool
       return `2025-${pad((index % 12) + 1)}-${pad((index % 28) + 1)}`
     case 'enum':
       return field.options?.length ? field.options[index % field.options.length] : ''
+    case 'ref':
+      return `${field.entity ?? 'Bản ghi'} ${(index % 5) + 1}`
   }
 }
 

@@ -34,6 +34,7 @@ export function buildContext(): TemplateContext {
         plural: 'students',
         pluralKebab: 'students',
         ownerOnly: false,
+        displayField: 'name',
         fields: [
           { name: 'name', type: 'string', required: true, unique: false, options: [] },
           { name: 'grade', type: 'enum', required: false, unique: false, options: ['A', 'B "quoted"'] },

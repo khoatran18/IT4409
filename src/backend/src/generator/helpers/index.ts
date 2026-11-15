@@ -9,6 +9,7 @@ const PRISMA_TYPES: Record<FieldType, string> = {
   boolean: 'Boolean',
   date: 'DateTime',
   enum: 'String',
+  ref: 'String',
 };
 
 export const helpers = {
