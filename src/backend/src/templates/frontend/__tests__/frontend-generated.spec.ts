@@ -1,5 +1,7 @@
-import { inventorySample, schoolAdminSample } from '@codeflow/schema';
+import { inventorySample, schoolAdminSample, shopSample } from '@codeflow/schema';
 import { generate } from '../../../generator/pipeline';
+import { generateWithoutValidation, kitchenSinkSample } from './fixtures';
+import { hasUnrenderedHandlebars } from './render-helper';
 
 const frontendFiles = async (schema: typeof schoolAdminSample) =>
   (await generate(schema)).filter((f) => f.path.startsWith('frontend/'));
@@ -21,15 +23,35 @@ describe('FE sinh ra từ generator thật', () => {
       'frontend/src/auth/AuthContext.tsx',
       'frontend/src/auth/LoginPage.tsx',
       'frontend/src/auth/ProtectedRoute.tsx',
+      ...[
+        'Button',
+        'Card',
+        'Checkbox',
+        'Container',
+        'Form',
+        'Grid',
+        'Heading',
+        'Input',
+        'RefSelect',
+        'Select',
+        'Table',
+        'Text',
+        'Unsupported',
+      ].map((name) => `frontend/src/components/${name}.tsx`),
       'frontend/src/layout/AppLayout.tsx',
+      'frontend/src/lib/entities.ts',
       'frontend/src/lib/fields.ts',
       'frontend/src/main.tsx',
       'frontend/src/pages/PagePlaceholder.tsx',
+      'frontend/src/pages/StudentsPage.tsx',
       'frontend/src/pages/student/DetailPage.tsx',
       'frontend/src/pages/student/FormPage.tsx',
       'frontend/src/pages/student/ListPage.tsx',
       'frontend/src/routes.ts',
+      'frontend/src/runtime/PageState.tsx',
+      'frontend/src/runtime/props.ts',
       'frontend/src/types/student.ts',
+      'frontend/src/workflows/index.ts',
       'frontend/tsconfig.json',
       'frontend/vite.config.ts',
     ]);
@@ -55,7 +77,7 @@ describe('FE sinh ra từ generator thật', () => {
     ['inventory', inventorySample],
   ])('%s: không còn {{ hay [object Object]', async (_name, schema) => {
     for (const file of await frontendFiles(schema)) {
-      expect(file.content).not.toContain('{{');
+      expect(hasUnrenderedHandlebars(file.content)).toBe(false);
       expect(file.content).not.toContain('[object Object]');
     }
   });
@@ -115,5 +137,99 @@ describe('FE sinh ra từ generator thật', () => {
     const docker = files.find((f) => f.path === 'frontend/Dockerfile')!.content;
     expect(docker).toContain('nginx:alpine');
     expect(docker).toContain('EXPOSE 80');
+  });
+});
+
+describe('trang kéo thả sinh JSX thật', () => {
+  it('school-admin: page Students render Table và Button, không còn PagePlaceholder cho page', async () => {
+    const files = await frontendFiles(schoolAdminSample);
+    const page = files.find((f) => f.path === 'frontend/src/pages/StudentsPage.tsx')!.content;
+    expect(page).toContain("import Table from '../components/Table'");
+    expect(page).toContain("import Button from '../components/Button'");
+    expect(page).toContain("<Table");
+    expect(page).toContain("entity: 'Student'");
+    expect(page).toContain("onClick: 'wf1'");
+    const app = files.find((f) => f.path === 'frontend/src/App.tsx')!.content;
+    expect(app).toContain("import StudentsPage from './pages/StudentsPage'");
+    expect(app).not.toContain('<PagePlaceholder title="Sinh viên"');
+  });
+
+  it('workflows/index.ts là stub xuất runWorkflow và liệt kê id workflow của schema', async () => {
+    const files = await frontendFiles(schoolAdminSample);
+    const stub = files.find((f) => f.path === 'frontend/src/workflows/index.ts')!.content;
+    expect(stub).toContain('export async function runWorkflow');
+    expect(stub).toContain("'wf1'");
+  });
+
+  describe('kitchen sink (shop + trang dùng đủ 11 component)', () => {
+    let files: Awaited<ReturnType<typeof generateWithoutValidation>>;
+    const read = (path: string) => files.find((f) => f.path === `frontend/${path}`)!.content;
+
+    beforeAll(async () => {
+      files = (await generateWithoutValidation(kitchenSinkSample)).filter((f) => f.path.startsWith('frontend/'));
+    });
+
+    it('mỗi page có file riêng, import đúng component được dùng', () => {
+      const paths = files.map((f) => f.path);
+      for (const name of ['OverviewPage', 'EditOrderIdPage', 'OrdersPage']) {
+        expect(paths).toContain(`frontend/src/pages/${name}.tsx`);
+      }
+      const overview = read('src/pages/OverviewPage.tsx');
+      for (const type of ['Heading', 'Text', 'Container', 'Input', 'Select', 'Checkbox', 'Button', 'Grid', 'Card', 'Table', 'Form']) {
+        expect(overview).toContain(`import ${type} from '../components/${type}'`);
+      }
+      expect(overview).toContain('<Grid');
+      expect(overview).toContain('</Grid>');
+    });
+
+    it('giá trị người dùng nhập chỉ xuất hiện như literal chuỗi, không phá cú pháp', () => {
+      const overview = read('src/pages/OverviewPage.tsx');
+      expect(overview).toContain('Tổng quan "shop" </script> ${x} {{y}}');
+      expect(overview).toContain("It's `text`");
+      expect(overview).not.toContain('[object Object]');
+    });
+
+    it('page route trống ra component rỗng hợp lệ, page trùng route entity vẫn bị chặn ở App', () => {
+      expect(read('src/pages/EmptyPage.tsx')).toContain('<PageStateProvider>');
+      const app = read('src/App.tsx');
+      expect(app).toContain('filter((page) => !isReserved(page.route))');
+      expect(read('src/routes.ts')).toContain("'/orders'");
+    });
+
+    it('không còn cú pháp Handlebars hay [object Object] trong file nào', () => {
+      for (const file of files) {
+        // `{{y}}` là chuỗi người dùng nhập có chủ ý (xem fixtures), phải còn nguyên dạng chuỗi
+        expect(hasUnrenderedHandlebars(file.content.replaceAll('{{y}}', ''))).toBe(false);
+        expect(file.content).not.toContain('[object Object]');
+      }
+    });
+
+    it('quan hệ: types, fields, form, list và API errors xử lý ref', () => {
+      const order = read('src/types/order.ts');
+      expect(order).toContain('customer: RefLabel;');
+      expect(order).toContain('customerId?: string | null;');
+      expect(order).toContain("'id' | 'createdAt' | 'updatedAt' | 'customer'");
+      expect(order).toContain("type: 'ref'");
+      const form = read('src/pages/order/FormPage.tsx');
+      expect(form).toContain('<RefSelect');
+      expect(form).toContain('entity="Customer"');
+      expect(form).toContain('mapFieldErrors(orderFields, info.fields)');
+      const list = read('src/pages/order/ListPage.tsx');
+      expect(list).toContain("toggleSort('customerId')");
+      expect(list).toContain('deleteErrorMessage(e)');
+      const fields = read('src/lib/fields.ts');
+      expect(fields).toContain('payload[field.ref?.idName');
+      expect(read('src/api/errors.ts')).toContain('status === 409');
+      expect(read('src/lib/entities.ts')).toContain("path: '/orders'");
+    });
+  });
+});
+
+describe('shopSample (Customer/Order) qua generator thật', () => {
+  it('sinh đủ file cho hai entity liên kết', async () => {
+    const paths = (await frontendFiles(shopSample)).map((f) => f.path);
+    for (const name of ['customer', 'order']) {
+      expect(paths).toContain(`frontend/src/pages/${name}/FormPage.tsx`);
+    }
   });
 });

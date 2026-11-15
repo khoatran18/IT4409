@@ -2,6 +2,7 @@ import type { ProjectSchema, TemplateContext } from '@codeflow/schema';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import Handlebars from 'handlebars';
+import { helpers } from '../../../generator/helpers';
 
 export const root = join(__dirname, '..');
 
@@ -56,9 +57,20 @@ function escapes(file: string): boolean {
 }
 
 export function render(file: string, context: TemplateContext): string {
-  const data = file.includes('__entity__') ? { ...context, entity: context.entities[0] } : context;
+  const data = file.includes('__entity__')
+    ? { ...context, entity: context.entities[0] }
+    : file.includes('__page__')
+      ? { ...context, page: context.pages[0] }
+      : context;
   const hbs = Handlebars.create();
-  hbs.registerHelper('eq', (a: unknown, b: unknown) => a === b);
-  hbs.registerHelper('json', (value: unknown) => JSON.stringify(value));
+  for (const [name, fn] of Object.entries(helpers)) hbs.registerHelper(name, fn);
   return hbs.compile(readFileSync(file, 'utf8'), { strict: false, noEscape: !escapes(file) })(data);
+}
+
+/**
+ * Còn sót cú pháp Handlebars chưa render. Trang kéo thả hợp lệ chứa `props={{ ... }}` (object literal trong JSX),
+ * nên không thể cấm `{{` nói chung: chỉ bắt `{{#`, `{{{`, `{{ten}}` và `{{helper tham-số}}`.
+ */
+export function hasUnrenderedHandlebars(content: string): boolean {
+  return /\{\{\{|\{\{[#/>!^&]|\{\{\s*[\w@.]+[^:{}]*\}\}/.test(content);
 }

@@ -1,5 +1,5 @@
 import { join, relative, sep } from 'node:path';
-import { buildContext, listTemplates, render, root } from './render-helper';
+import { buildContext, hasUnrenderedHandlebars, listTemplates, render, root } from './render-helper';
 
 describe('template FE khung dự án', () => {
   const files = listTemplates(root);
@@ -18,12 +18,32 @@ describe('template FE khung dự án', () => {
         'src/auth/AuthContext.tsx.hbs',
         'src/auth/LoginPage.tsx.hbs',
         'src/auth/ProtectedRoute.tsx.hbs',
+        ...[
+          'Button',
+          'Card',
+          'Checkbox',
+          'Container',
+          'Form',
+          'Grid',
+          'Heading',
+          'Input',
+          'RefSelect',
+          'Select',
+          'Table',
+          'Text',
+          'Unsupported',
+        ].map((name) => `src/components/${name}.tsx.hbs`),
         'src/layout/AppLayout.tsx.hbs',
+        'src/lib/entities.ts.hbs',
         'src/lib/fields.ts.hbs',
         'src/pages/__entity__/DetailPage.tsx.hbs',
         'src/pages/__entity__/FormPage.tsx.hbs',
         'src/pages/__entity__/ListPage.tsx.hbs',
+        'src/pages/__page__.tsx.hbs',
         'src/routes.ts.hbs',
+        'src/runtime/PageState.tsx.hbs',
+        'src/runtime/props.ts.hbs',
+        'src/workflows/index.ts.hbs',
         'src/types/__entity__.ts.hbs',
         'nginx.conf.hbs',
         'package.json.hbs',
@@ -37,7 +57,9 @@ describe('template FE khung dự án', () => {
   });
 
   it.each(listTemplates(root).map((f) => [relative(root, f), f]))('%s render xong không còn {{', (_name, file) => {
-    expect(render(file, buildContext())).not.toContain('{{');
+    const output = render(file, buildContext());
+    if (file.includes('__page__')) expect(hasUnrenderedHandlebars(output)).toBe(false);
+    else expect(output).not.toContain('{{');
   });
 
   it('package.json hợp lệ', () => {
@@ -54,13 +76,14 @@ describe('template FE khung dự án', () => {
   it('App.tsx có route cho mỗi page, redirect "/" về trang đầu và route 404', () => {
     const app = render(join(root, 'src/App.tsx.hbs'), buildContext());
     expect(app).toContain('route: "/students"');
+    expect(app).toContain("import StudentsPage from './pages/StudentsPage'");
     expect(app).toContain('<StudentsPage />');
     expect(app).toContain('route: "/about"');
     expect(app).toContain('<AboutPage />');
     expect(app).toContain('<Navigate to="/students" replace />');
     expect(app).toContain('<Route path="/login" element={<LoginPage />} />');
     expect(app).toContain('path="*"');
-    expect(app).toContain('title="Giới thiệu &quot;App&quot; &amp; more"');
+    expect(app).not.toContain('Giới thiệu');
   });
 
   it('không redirect khi trang đầu đã là "/"', () => {
@@ -125,5 +148,65 @@ describe('template FE khung dự án', () => {
     expect(client).toContain("baseURL: '/api'");
     expect(client).toContain('status === 401');
     expect(client).toContain('Bearer ${token}');
+  });
+});
+
+describe('template component và trang kéo thả', () => {
+  const pageFile = join(root, 'src/pages/__page__.tsx.hbs');
+
+  it('mọi component trong registry FE có template', () => {
+    const names = listTemplates(join(root, 'src/components')).map((f) => relative(join(root, 'src/components'), f));
+    for (const type of ['Text', 'Heading', 'Button', 'Input', 'Select', 'Checkbox', 'Container', 'Card', 'Table', 'Form', 'Grid']) {
+      expect(names).toContain(`${type}.tsx.hbs`);
+    }
+  });
+
+  it('page render cây component lồng nhau, chỉ import component được dùng, nội dung người dùng đi qua JSON', () => {
+    const context = buildContext();
+    context.schema = {
+      ...context.schema,
+      pages: [
+        {
+          id: 'p1',
+          route: '/students',
+          title: 'Sinh viên',
+          requireRole: [],
+          components: [
+            {
+              id: 'c1',
+              type: 'Container',
+              props: { direction: 'row' },
+              children: [
+                { id: 'c2', type: 'Heading', props: { text: 'Chào "bạn" </h1> {{x}} ${y}' } },
+                { id: 'c3', type: 'Button', props: { text: 'Gửi' }, events: { onClick: 'wf1' } },
+              ],
+            },
+            { id: 'c4', type: 'Chart', props: {} },
+          ],
+        },
+      ],
+    };
+    const out = render(pageFile, context);
+    expect(out).toContain("import Container from '../components/Container'");
+    expect(out).toContain("import Unsupported from '../components/Unsupported'");
+    expect(out).not.toContain("components/Table'");
+    expect(out).toContain('<Container props={{"direction":"row"}}><Heading props={{"text":"Chào \\"bạn\\" </h1> {{x}} ${y}"}} />');
+    expect(out).toContain('events={{"onClick":"wf1"}}');
+    expect(out).toContain('<Unsupported props={{}} type={"Chart"} />');
+    expect(out).toContain('export default function StudentsPage()');
+  });
+
+  it('Table dùng api qua registry entity và phân trang theo pageSize', () => {
+    const table = render(join(root, 'src/components/Table.tsx.hbs'), buildContext());
+    expect(table).toContain('info.api');
+    expect(table).toContain('pageSize');
+    expect(table).toContain('toggleSort(sortKey(field))');
+  });
+
+  it('LoginPage phân biệt 401 và 403', () => {
+    const login = render(join(root, 'src/auth/LoginPage.tsx.hbs'), buildContext());
+    expect(login).toContain("info.status === 401");
+    expect(login).toContain('info.status === 403');
+    expect(login).toContain('Tài khoản đã bị khóa');
   });
 });

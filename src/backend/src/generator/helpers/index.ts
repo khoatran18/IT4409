@@ -1,6 +1,7 @@
 import type { FieldType } from '@codeflow/schema';
 import { camelCase, kebabCase, pascalCase, plural } from './case';
 import { json, prismaDefault, zodExpr } from './field';
+import { pageComponents, pageJsx } from './jsx';
 
 const PRISMA_TYPES: Record<FieldType, string> = {
   string: 'String',
@@ -24,6 +25,8 @@ export const helpers = {
   json,
   zodExpr,
   prismaDefault,
+  pageJsx,
+  pageComponents,
 };
 
 export { camelCase, kebabCase, pascalCase, plural };
