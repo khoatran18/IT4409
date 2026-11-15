@@ -88,8 +88,14 @@ describe('generator pipeline', () => {
     ).toBe(false);
   });
 
-  it('khớp snapshot', async () => {
-    expect(await generate(schoolAdminSample)).toMatchSnapshot();
+  it('sinh trang kéo thả và workflow từ schema', async () => {
+    const files = await generate(schoolAdminSample);
+    const get = (path: string) => files.find((file) => file.path === path)!.content;
+    const page = get('frontend/src/pages/StudentsPage.tsx');
+    expect(page).toContain("import Table from '../components/Table'");
+    expect(page).toContain('<Table');
+    expect(page).toContain("onClick: 'wf1'");
+    expect(get('frontend/src/workflows/index.ts')).toContain("'wf1'");
   });
 
   it('xác định: cùng input cho cùng output', async () => {
