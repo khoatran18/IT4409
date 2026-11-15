@@ -595,10 +595,22 @@ volumes:
     "path": "docker-compose.yml",
   },
   {
+    "content": "node_modules
+dist
+.env
+.env.*
+.git
+Dockerfile
+.dockerignore
+*.log
+",
+    "path": "frontend/.dockerignore",
+  },
+  {
     "content": "FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 
@@ -628,13 +640,48 @@ EXPOSE 80
   {
     "content": "server {
   listen 80;
+  server_name _;
   root /usr/share/nginx/html;
   index index.html;
+  client_max_body_size 10m;
+
+  gzip on;
+  gzip_vary on;
+  gzip_min_length 1024;
+  gzip_types text/plain text/css text/javascript application/javascript application/json image/svg+xml;
+
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  # Docker DNS; phân giải backend lúc có request để nginx vẫn khởi động khi backend chưa sẵn sàng
+  resolver 127.0.0.11 valid=10s;
 
   location /api/ {
-    proxy_pass http://backend:3000;
+    set $backend http://backend:3000;
+    proxy_pass $backend;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  # File build có hash trong tên nên cache lâu được
+  location /assets/ {
+    try_files $uri =404;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  }
+
+  # index.html trỏ tới file build mới nhất nên không được cache
+  location = /index.html {
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
   }
 
   location / {
@@ -656,6 +703,7 @@ EXPOSE 80
     "preview": "vite preview"
   },
   "dependencies": {
+    "axios": "^1.20.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.9.0"
@@ -672,24 +720,621 @@ EXPOSE 80
     "path": "frontend/package.json",
   },
   {
-    "content": "import { Navigate, Route, Routes } from 'react-router-dom';
+    "content": "import type { ReactElement } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthContext';
+import LoginPage from './auth/LoginPage';
+import ProtectedRoute from './auth/ProtectedRoute';
+import AppLayout from './layout/AppLayout';
 import PagePlaceholder from './pages/PagePlaceholder';
+import { isReserved } from './routes';
+import StudentList from './pages/student/ListPage';
+import StudentForm from './pages/student/FormPage';
+import StudentDetail from './pages/student/DetailPage';
 
 function StudentsPage() {
   return <PagePlaceholder title="Sinh viên" />;
 }
 
+interface CustomPage {
+  route: string;
+  requireRole: string[];
+  element: ReactElement;
+}
+
+const customPages: CustomPage[] = [
+  {
+    route: '/students',
+    requireRole: ['admin', 'user'],
+    element: <StudentsPage />,
+  },
+].filter((page) => !isReserved(page.route));
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/students" replace />} />
-      <Route path="/students" element={<StudentsPage />} />
-      <Route path="*" element={<PagePlaceholder title="404" />} />
-    </Routes>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/" element={<Navigate to="/students" replace />} />
+          <Route
+            path="/students"
+            element={
+              <ProtectedRoute entity="Student" action="read">
+                <StudentList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/students/new"
+            element={
+              <ProtectedRoute entity="Student" action="create">
+                <StudentForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/students/:id"
+            element={
+              <ProtectedRoute entity="Student" action="read">
+                <StudentDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/students/:id/edit"
+            element={
+              <ProtectedRoute entity="Student" action="update">
+                <StudentForm />
+              </ProtectedRoute>
+            }
+          />
+          {customPages.map((page) => (
+            <Route
+              key={page.route}
+              path={page.route}
+              element={
+                <ProtectedRoute requireRole={page.requireRole}>
+                  {page.element}
+                </ProtectedRoute>
+              }
+            />
+          ))}
+          <Route path="*" element={<PagePlaceholder title="404" />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
 ",
     "path": "frontend/src/App.tsx",
+  },
+  {
+    "content": "import axios from 'axios';
+
+const TOKEN_KEY = 'accessToken';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+let unauthorizedHandler: () => void = () => {};
+
+/** AuthContext đăng ký hàm này để đăng xuất khi server trả 401. */
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler;
+}
+
+export const api = axios.create({ baseURL: '/api' });
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = \`Bearer \${token}\`;
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    const isLogin =
+      axios.isAxiosError(error) && error.config?.url === '/auth/login';
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 401 &&
+      !isLogin
+    ) {
+      clearToken();
+      unauthorizedHandler();
+    }
+    return Promise.reject(error);
+  },
+);
+",
+    "path": "frontend/src/api/client.ts",
+  },
+  {
+    "content": "import axios from 'axios';
+
+export interface ApiErrorInfo {
+  status?: number;
+  code?: string;
+  message: string;
+  /** Lỗi theo field, lấy từ \`error.details\` (422 và 409) */
+  fields: Record<string, string>;
+}
+
+interface ErrorBody {
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Array<{ path?: string; message?: string }>;
+  };
+}
+
+export function parseApiError(error: unknown): ApiErrorInfo {
+  if (!axios.isAxiosError<ErrorBody>(error)) {
+    return { message: 'Đã xảy ra lỗi không xác định', fields: {} };
+  }
+  const body = error.response?.data?.error;
+  if (!error.response)
+    return { message: 'Không kết nối được máy chủ', fields: {} };
+
+  const fields: Record<string, string> = {};
+  for (const detail of body?.details ?? []) {
+    if (detail.path && detail.message) fields[detail.path] = detail.message;
+  }
+  return {
+    status: error.response.status,
+    code: body?.code,
+    message: body?.message ?? \`Lỗi \${error.response.status}\`,
+    fields,
+  };
+}
+
+export function errorMessage(error: unknown): string {
+  return parseApiError(error).message;
+}
+",
+    "path": "frontend/src/api/errors.ts",
+  },
+  {
+    "content": "import type { Student, StudentInput } from '../types/student';
+import { api } from './client';
+import type { ListParams, ListResult } from './types';
+
+const BASE = '/students';
+
+export const studentApi = {
+  async list(params: ListParams = {}): Promise<ListResult<Student>> {
+    const res = await api.get<ListResult<Student>>(BASE, { params });
+    return res.data;
+  },
+
+  async get(id: string): Promise<Student> {
+    const res = await api.get<{ data: Student }>(\`\${BASE}/\${id}\`);
+    return res.data.data;
+  },
+
+  async create(input: StudentInput): Promise<Student> {
+    const res = await api.post<{ data: Student }>(BASE, input);
+    return res.data.data;
+  },
+
+  async update(id: string, input: StudentInput): Promise<Student> {
+    const res = await api.put<{ data: Student }>(\`\${BASE}/\${id}\`, input);
+    return res.data.data;
+  },
+
+  async remove(id: string): Promise<void> {
+    await api.delete(\`\${BASE}/\${id}\`);
+  },
+};
+",
+    "path": "frontend/src/api/student.api.ts",
+  },
+  {
+    "content": "export interface ListParams {
+  page?: number;
+  pageSize?: number;
+  /** Ví dụ \`name:asc\` */
+  sort?: string;
+  q?: string;
+}
+
+export interface ListMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ListResult<T> {
+  data: T[];
+  meta: ListMeta;
+}
+",
+    "path": "frontend/src/api/types.ts",
+  },
+  {
+    "content": "import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  api,
+  clearToken,
+  getToken,
+  onUnauthorized,
+  setToken,
+} from '../api/client';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: string;
+}
+
+const ACTION_CODES = {
+  create: 'C',
+  read: 'R',
+  update: 'U',
+  delete: 'D',
+} as const;
+
+export type EntityAction = keyof typeof ACTION_CODES;
+
+/** Ma trận quyền sinh từ schema: entity -> role -> chuỗi con của "CRUD" */
+const PERMISSIONS: Record<string, Record<string, string>> = {
+  Student: { admin: 'CRUD', user: 'R' },
+};
+
+interface AuthState {
+  user: AuthUser | null;
+  loading: boolean;
+  /** Quyền của role hiện tại trên entity; admin luôn được phép */
+  can: (entity: string, action: EntityAction) => boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(() => getToken() !== null);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const res = await api.post('/auth/login', { email, password });
+    setToken(res.data.data.accessToken);
+    setUser(res.data.data.user as AuthUser);
+  }, []);
+
+  useEffect(() => {
+    onUnauthorized(logout);
+    if (getToken() === null) return;
+    api
+      .get('/auth/me')
+      .then((res) => setUser(res.data.data as AuthUser))
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
+  }, [logout]);
+
+  const can = useCallback(
+    (entity: string, action: EntityAction) => {
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      return (PERMISSIONS[entity]?.[user.role] ?? '').includes(
+        ACTION_CODES[action],
+      );
+    },
+    [user],
+  );
+
+  const value = useMemo(
+    () => ({ user, loading, can, login, logout }),
+    [user, loading, can, login, logout],
+  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthState {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth phải nằm trong AuthProvider');
+  return context;
+}
+",
+    "path": "frontend/src/auth/AuthContext.tsx",
+  },
+  {
+    "content": "import { useState, type FormEvent } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+
+const style = { padding: 24, maxWidth: 360 };
+const formStyle = { display: 'grid', gap: 12 };
+
+export default function LoginPage() {
+  const { user, login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
+
+  if (user) return <Navigate to={from} replace />;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    try {
+      await login(email, password);
+      navigate(from, { replace: true });
+    } catch {
+      setError('Sai email hoặc mật khẩu');
+    }
+  }
+
+  return (
+    <main style={style}>
+      <h1>Đăng nhập</h1>
+      <form style={formStyle} onSubmit={handleSubmit}>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Mật khẩu"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        {error && <span role="alert">{error}</span>}
+        <button type="submit">Đăng nhập</button>
+      </form>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/auth/LoginPage.tsx",
+  },
+  {
+    "content": "import type { ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth, type EntityAction } from './AuthContext';
+
+const style = { padding: 24 };
+
+interface ProtectedRouteProps {
+  /** Rỗng hoặc bỏ trống: chỉ cần đăng nhập */
+  requireRole?: string[];
+  /** Trang entity: cần quyền \`action\` trên \`entity\` */
+  entity?: string;
+  action?: EntityAction;
+  children: ReactNode;
+}
+
+export default function ProtectedRoute({
+  requireRole = [],
+  entity,
+  action = 'read',
+  children,
+}: ProtectedRouteProps) {
+  const { user, loading, can } = useAuth();
+  const location = useLocation();
+
+  if (loading) return null;
+  if (!user) {
+    const state = { from: location.pathname };
+    return <Navigate to="/login" state={state} replace />;
+  }
+  const denied =
+    (requireRole.length > 0 && !requireRole.includes(user.role)) ||
+    (entity !== undefined && !can(entity, action));
+  if (denied) {
+    return (
+      <main style={style}>
+        <h1>403</h1>
+        <p>Bạn không có quyền truy cập trang này.</p>
+      </main>
+    );
+  }
+  return <>{children}</>;
+}
+",
+    "path": "frontend/src/auth/ProtectedRoute.tsx",
+  },
+  {
+    "content": "import type { CSSProperties } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { isReserved } from '../routes';
+
+interface MenuItem {
+  title: string;
+  route: string;
+  requireRole: string[];
+  /** Mục của trang entity: hiện khi role có quyền đọc entity */
+  entity?: string;
+}
+
+const entityMenu: MenuItem[] = [
+  {
+    title: 'Danh sách Student',
+    route: '/students',
+    requireRole: [],
+    entity: 'Student',
+  },
+];
+
+const pageMenu: MenuItem[] = [
+  { title: 'Sinh viên', route: '/students', requireRole: ['admin', 'user'] },
+].filter((item) => !isReserved(item.route));
+
+const menu: MenuItem[] = [...entityMenu, ...pageMenu];
+
+const shellStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '220px 1fr',
+  minHeight: '100vh',
+};
+const sidebarStyle: CSSProperties = {
+  display: 'grid',
+  alignContent: 'start',
+  gap: 8,
+  padding: 16,
+  borderRight: '1px solid #ddd',
+};
+const headerStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  alignItems: 'center',
+  gap: 12,
+  padding: 12,
+  borderBottom: '1px solid #ddd',
+};
+
+export default function AppLayout() {
+  const { user, can, logout } = useAuth();
+  const items = menu.filter((item) => {
+    if (item.entity) return can(item.entity, 'read');
+    return (
+      item.requireRole.length === 0 ||
+      (user !== null && item.requireRole.includes(user.role))
+    );
+  });
+
+  return (
+    <div style={shellStyle}>
+      <nav style={sidebarStyle}>
+        <strong>school-admin</strong>
+        {items.map((item) => (
+          <NavLink key={item.route} to={item.route}>
+            {item.title}
+          </NavLink>
+        ))}
+      </nav>
+      <div>
+        <header style={headerStyle}>
+          <span>{user?.email}</span>
+          <button type="button" onClick={logout}>
+            Đăng xuất
+          </button>
+        </header>
+        <Outlet />
+      </div>
+    </div>
+  );
+}
+",
+    "path": "frontend/src/layout/AppLayout.tsx",
+  },
+  {
+    "content": "export type FieldType =
+  'string' | 'text' | 'number' | 'boolean' | 'date' | 'enum';
+
+export interface FieldMeta {
+  name: string;
+  type: FieldType;
+  required: boolean;
+  unique: boolean;
+  options: string[];
+  default?: string | number | boolean;
+}
+
+/** Giá trị form: checkbox là boolean, còn lại là chuỗi nhập vào */
+export type FormValues = Record<string, string | boolean>;
+
+export function initialValues(
+  fields: FieldMeta[],
+  record?: Record<string, unknown>,
+): FormValues {
+  const values: FormValues = {};
+  for (const field of fields) {
+    const source = record ? record[field.name] : field.default;
+    if (field.type === 'boolean') values[field.name] = Boolean(source);
+    else if (source === undefined || source === null) values[field.name] = '';
+    else
+      values[field.name] =
+        field.type === 'date' ? String(source).slice(0, 10) : String(source);
+  }
+  return values;
+}
+
+export function validate(
+  fields: FieldMeta[],
+  values: FormValues,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.type === 'boolean') continue;
+    const value = String(values[field.name] ?? '').trim();
+    if (value === '') {
+      if (field.required) errors[field.name] = 'Bắt buộc nhập';
+    } else if (field.type === 'number' && Number.isNaN(Number(value))) {
+      errors[field.name] = 'Phải là số';
+    } else if (field.type === 'enum' && !field.options.includes(value)) {
+      errors[field.name] = 'Giá trị không hợp lệ';
+    }
+  }
+  return errors;
+}
+
+/** Chuyển giá trị form thành body gửi API; field tùy chọn để trống gửi null */
+export function toPayload(
+  fields: FieldMeta[],
+  values: FormValues,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = values[field.name];
+    if (field.type === 'boolean') payload[field.name] = Boolean(value);
+    else if (String(value).trim() === '') payload[field.name] = null;
+    else payload[field.name] = field.type === 'number' ? Number(value) : value;
+  }
+  return payload;
+}
+
+export function formatValue(value: unknown, type: FieldType): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (type === 'boolean') return value ? 'Có' : 'Không';
+  if (type === 'date')
+    return new Date(String(value)).toLocaleDateString('vi-VN');
+  return String(value);
+}
+
+export function formatDateTime(value: unknown): string {
+  return value ? new Date(String(value)).toLocaleString('vi-VN') : '';
+}
+",
+    "path": "frontend/src/lib/fields.ts",
   },
   {
     "content": "import { StrictMode } from 'react';
@@ -719,6 +1364,483 @@ export default function PagePlaceholder({ title }: { title: string }) {
 }
 ",
     "path": "frontend/src/pages/PagePlaceholder.tsx",
+  },
+  {
+    "content": "import { useEffect, useState, type CSSProperties } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { studentApi } from '../../api/student.api';
+import { errorMessage } from '../../api/errors';
+import { useAuth } from '../../auth/AuthContext';
+import { formatDateTime, formatValue } from '../../lib/fields';
+import type { Student } from '../../types/student';
+
+const ENTITY = 'Student';
+
+const pageStyle: CSSProperties = { padding: 24, maxWidth: 640 };
+const listStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '160px 1fr',
+  gap: 8,
+};
+const actionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: 12,
+  alignItems: 'center',
+  marginTop: 16,
+};
+
+export default function StudentDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const [record, setRecord] = useState<Student | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (id === undefined) return;
+    let cancelled = false;
+    studentApi
+      .get(id)
+      .then((result) => {
+        if (!cancelled) setRecord(result);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function handleDelete() {
+    if (!record || !window.confirm('Xóa bản ghi này?')) return;
+    try {
+      await studentApi.remove(record.id);
+      navigate('/students');
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  return (
+    <main style={pageStyle}>
+      <h1>Chi tiết Student</h1>
+      {error && <p role="alert">{error}</p>}
+      {!record && !error && <p>Đang tải...</p>}
+      {record && (
+        <dl style={listStyle}>
+          <dt>name</dt>
+          <dd>{formatValue(record.name, 'string')}</dd>
+          <dt>email</dt>
+          <dd>{formatValue(record.email, 'string')}</dd>
+          <dt>age</dt>
+          <dd>{formatValue(record.age, 'number')}</dd>
+          <dt>createdAt</dt>
+          <dd>{formatDateTime(record.createdAt)}</dd>
+          <dt>updatedAt</dt>
+          <dd>{formatDateTime(record.updatedAt)}</dd>
+        </dl>
+      )}
+      <div style={actionsStyle}>
+        <Link to="/students">Quay lại</Link>
+        {record && can(ENTITY, 'update') && (
+          <Link to={\`/students/\${record.id}/edit\`}>Sửa</Link>
+        )}
+        {record && can(ENTITY, 'delete') && (
+          <button type="button" onClick={() => void handleDelete()}>
+            Xóa
+          </button>
+        )}
+      </div>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/pages/student/DetailPage.tsx",
+  },
+  {
+    "content": "import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { studentApi } from '../../api/student.api';
+import { parseApiError } from '../../api/errors';
+import {
+  initialValues,
+  toPayload,
+  validate,
+  type FormValues,
+} from '../../lib/fields';
+import { studentFields, type StudentInput } from '../../types/student';
+
+const pageStyle: CSSProperties = { padding: 24, maxWidth: 520 };
+const formStyle: CSSProperties = { display: 'grid', gap: 12 };
+const labelStyle: CSSProperties = { display: 'grid', gap: 4 };
+const checkStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+};
+const errorStyle: CSSProperties = { color: '#b91c1c', fontSize: 13 };
+const actionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: 12,
+  alignItems: 'center',
+};
+
+export default function StudentForm() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const editing = id !== undefined;
+  const [values, setValues] = useState<FormValues>(() =>
+    initialValues(studentFields),
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(editing);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (id === undefined) return;
+    let cancelled = false;
+    studentApi
+      .get(id)
+      .then((record) => {
+        if (!cancelled) setValues(initialValues(studentFields, { ...record }));
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setFormError(parseApiError(e).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  function setValue(name: string, value: string | boolean) {
+    setValues((current) => ({ ...current, [name]: value }));
+    setErrors((current) => ({ ...current, [name]: '' }));
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setFormError('');
+    const clientErrors = validate(studentFields, values);
+    setErrors(clientErrors);
+    if (Object.keys(clientErrors).length > 0) return;
+
+    const payload = toPayload(studentFields, values) as StudentInput;
+    setSaving(true);
+    try {
+      if (id === undefined) await studentApi.create(payload);
+      else await studentApi.update(id, payload);
+      navigate('/students');
+    } catch (err) {
+      const info = parseApiError(err);
+      setErrors(info.fields);
+      setFormError(Object.keys(info.fields).length > 0 ? '' : info.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <main style={pageStyle}>Đang tải...</main>;
+
+  return (
+    <main style={pageStyle}>
+      <h1>{editing ? 'Sửa' : 'Thêm'} Student</h1>
+      <form style={formStyle} onSubmit={handleSubmit} noValidate>
+        <label style={labelStyle}>
+          <span>name *</span>
+          <input
+            type="text"
+            name="name"
+            value={String(values['name'])}
+            onChange={(e) => setValue('name', e.target.value)}
+          />
+          {errors['name'] && <span style={errorStyle}>{errors['name']}</span>}
+        </label>
+        <label style={labelStyle}>
+          <span>email</span>
+          <input
+            type="text"
+            name="email"
+            value={String(values['email'])}
+            onChange={(e) => setValue('email', e.target.value)}
+          />
+          {errors['email'] && <span style={errorStyle}>{errors['email']}</span>}
+        </label>
+        <label style={labelStyle}>
+          <span>age</span>
+          <input
+            type="number"
+            step="any"
+            name="age"
+            value={String(values['age'])}
+            onChange={(e) => setValue('age', e.target.value)}
+          />
+          {errors['age'] && <span style={errorStyle}>{errors['age']}</span>}
+        </label>
+        {formError && (
+          <span role="alert" style={errorStyle}>
+            {formError}
+          </span>
+        )}
+        <div style={actionsStyle}>
+          <button type="submit" disabled={saving}>
+            {saving ? 'Đang lưu...' : 'Lưu'}
+          </button>
+          <Link to="/students">Hủy</Link>
+        </div>
+      </form>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/pages/student/FormPage.tsx",
+  },
+  {
+    "content": "import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { studentApi } from '../../api/student.api';
+import { errorMessage } from '../../api/errors';
+import type { ListMeta } from '../../api/types';
+import { useAuth } from '../../auth/AuthContext';
+import { formatValue } from '../../lib/fields';
+import type { Student } from '../../types/student';
+
+const ENTITY = 'Student';
+const PAGE_SIZE = 10;
+
+const pageStyle: CSSProperties = { padding: 24 };
+const barStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+  marginBottom: 16,
+};
+const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
+const cellStyle: CSSProperties = {
+  padding: '6px 8px',
+  borderBottom: '1px solid #ddd',
+  textAlign: 'left',
+};
+const sortableStyle: CSSProperties = {
+  ...cellStyle,
+  cursor: 'pointer',
+  userSelect: 'none',
+};
+const actionsStyle: CSSProperties = { ...cellStyle, display: 'flex', gap: 8 };
+const pagerStyle: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+  marginTop: 16,
+};
+
+export default function StudentList() {
+  const { can } = useAuth();
+  const [rows, setRows] = useState<Student[]>([]);
+  const [meta, setMeta] = useState<ListMeta>({
+    page: 1,
+    pageSize: PAGE_SIZE,
+    total: 0,
+  });
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    studentApi
+      .list({
+        page,
+        pageSize: PAGE_SIZE,
+        q: q || undefined,
+        sort: sort || undefined,
+      })
+      .then((result) => {
+        if (cancelled) return;
+        setRows(result.data);
+        setMeta(result.meta);
+        setError('');
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, q, sort, reloadKey]);
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    setQ(search.trim());
+  }
+
+  function toggleSort(name: string) {
+    setPage(1);
+    setSort((current) =>
+      current === \`\${name}:asc\` ? \`\${name}:desc\` : \`\${name}:asc\`,
+    );
+  }
+
+  function sortMark(name: string): string {
+    if (sort === \`\${name}:asc\`) return ' ▲';
+    return sort === \`\${name}:desc\` ? ' ▼' : '';
+  }
+
+  async function handleDelete(row: Student) {
+    if (!window.confirm('Xóa bản ghi này?')) return;
+    try {
+      await studentApi.remove(row.id);
+      if (rows.length === 1 && page > 1) setPage(page - 1);
+      else setReloadKey((key) => key + 1);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.pageSize));
+  const canUpdate = can(ENTITY, 'update');
+  const canDelete = can(ENTITY, 'delete');
+
+  return (
+    <main style={pageStyle}>
+      <h1>Danh sách Student</h1>
+      <div style={barStyle}>
+        <form onSubmit={handleSearch}>
+          <input
+            type="search"
+            placeholder="Tìm kiếm"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />{' '}
+          <button type="submit">Tìm</button>
+        </form>
+        {can(ENTITY, 'create') && <Link to="/students/new">Thêm mới</Link>}
+      </div>
+      {error && <p role="alert">{error}</p>}
+      <table style={tableStyle}>
+        <thead>
+          <tr>
+            <th style={sortableStyle} onClick={() => toggleSort('name')}>
+              name
+              {sortMark('name')}
+            </th>
+            <th style={sortableStyle} onClick={() => toggleSort('email')}>
+              email
+              {sortMark('email')}
+            </th>
+            <th style={sortableStyle} onClick={() => toggleSort('age')}>
+              age
+              {sortMark('age')}
+            </th>
+            {(canUpdate || canDelete) && <th style={cellStyle} />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td style={cellStyle}>
+                <Link to={\`/students/\${row.id}\`}>
+                  {formatValue(row.name, 'string') || row.id}
+                </Link>
+              </td>
+              <td style={cellStyle}>{formatValue(row.email, 'string')}</td>
+              <td style={cellStyle}>{formatValue(row.age, 'number')}</td>
+              {(canUpdate || canDelete) && (
+                <td style={actionsStyle}>
+                  {canUpdate && (
+                    <Link to={\`/students/\${row.id}/edit\`}>Sửa</Link>
+                  )}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(row)}
+                    >
+                      Xóa
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!loading && rows.length === 0 && !error && <p>Chưa có dữ liệu.</p>}
+      {loading && <p>Đang tải...</p>}
+      <div style={pagerStyle}>
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => setPage(page - 1)}
+        >
+          Trước
+        </button>
+        <span>
+          Trang {meta.page} / {totalPages} ({meta.total} bản ghi)
+        </span>
+        <button
+          type="button"
+          disabled={page >= totalPages}
+          onClick={() => setPage(page + 1)}
+        >
+          Sau
+        </button>
+      </div>
+    </main>
+  );
+}
+",
+    "path": "frontend/src/pages/student/ListPage.tsx",
+  },
+  {
+    "content": "/** Route do trang entity (danh sách, thêm, chi tiết, sửa) chiếm; page tùy biến trùng route này bị bỏ qua. */
+export const reservedRoutes: string[] = [
+  '/students',
+  '/students/new',
+  '/students/:id',
+  '/students/:id/edit',
+];
+
+export function isReserved(route: string): boolean {
+  return reservedRoutes.includes(route);
+}
+",
+    "path": "frontend/src/routes.ts",
+  },
+  {
+    "content": "import type { FieldMeta } from '../lib/fields';
+
+export interface Student {
+  id: string;
+  name: string;
+  email?: string | null;
+  age?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Body tạo/sửa: server tự quản lý id, createdAt, updatedAt */
+export type StudentInput = Omit<Student, 'id' | 'createdAt' | 'updatedAt'>;
+
+export const studentFields: FieldMeta[] = [
+  { name: 'name', type: 'string', required: true, unique: false, options: [] },
+  { name: 'email', type: 'string', required: false, unique: true, options: [] },
+  { name: 'age', type: 'number', required: false, unique: false, options: [] },
+];
+",
+    "path": "frontend/src/types/student.ts",
   },
   {
     "content": "{
@@ -752,861 +1874,6 @@ export default defineConfig({
 });
 ",
     "path": "frontend/vite.config.ts",
-  },
-]
-`;
-
-exports[`generator pipeline khớp snapshot với schema mẫu thứ hai 1`] = `
-[
-  {
-    "content": "PORT=3000
-DATABASE_URL=postgresql://app:app@localhost:5432/inventory
-RATE_LIMIT_PER_MIN=100
-# Đặt số lớp proxy phía trước (ví dụ 1 khi chạy sau nginx) để rate limit lấy đúng IP client
-TRUST_PROXY=false
-",
-    "path": "backend/.env.example",
-  },
-  {
-    "content": "{
-  "name": "inventory-backend",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "prisma generate && tsc",
-    "typecheck": "tsc --noEmit",
-    "start": "node dist/server.js",
-    "db:push": "prisma db push"
-  },
-  "dependencies": {
-    "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.10.0",
-    "dotenv": "^17.0.0",
-    "express": "^5.1.0",
-    "pg": "^8.16.0",
-    "zod": "^4.0.0"
-  },
-  "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/node": "^24.0.0",
-    "@types/pg": "^8.15.0",
-    "prisma": "^7.10.0",
-    "typescript": "^5.9.0"
-  }
-}
-",
-    "path": "backend/package.json",
-  },
-  {
-    "content": "import 'dotenv/config';
-import { defineConfig } from 'prisma/config';
-
-export default defineConfig({
-  schema: 'prisma/schema.prisma',
-  datasource: { url: process.env.DATABASE_URL },
-});
-",
-    "path": "backend/prisma.config.ts",
-  },
-  {
-    "content": "generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
-}
-
-datasource db {
-  provider = "postgresql"
-}
-
-model Product {
-  id        String   @id @default(uuid())
-  name String
-  sku String @unique
-  description String?
-  price Float
-  quantity Float @default(0)
-  category String? @default("Other")
-  inStock Boolean? @default(true)
-  releasedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("products")
-}
-
-model Category {
-  id        String   @id @default(uuid())
-  title String @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("categories")
-}
-
-model Supplier {
-  id        String   @id @default(uuid())
-  companyName String
-  active Boolean @default(true)
-  ownerId   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("suppliers")
-}
-",
-    "path": "backend/prisma/schema.prisma",
-  },
-  {
-    "content": "import express from 'express';
-import { env, trustProxySetting } from './config/env';
-import { prisma } from './lib/prisma';
-import { errorHandler, notFound } from './middleware/errorHandler';
-import { logger } from './middleware/logger';
-import { rateLimit } from './middleware/rateLimit';
-import { productRouter } from './modules/product/product.routes';
-import { categoryRouter } from './modules/category/category.routes';
-import { supplierRouter } from './modules/supplier/supplier.routes';
-
-export function createApp() {
-  const app = express();
-  app.set('trust proxy', trustProxySetting(env.TRUST_PROXY));
-
-  app.use(logger);
-
-  app.get('/api/health', async (_req, res) => {
-    try {
-      await prisma.$queryRaw\`SELECT 1\`;
-      res.json({ status: 'ok' });
-    } catch {
-      res.status(503).json({ status: 'error', db: 'down' });
-    }
-  });
-
-  app.use(rateLimit(env.RATE_LIMIT_PER_MIN));
-  app.use(express.json());
-  // Tuần 4: gắn middleware đăng nhập (parse token) ngay đây; phân quyền gắn trong từng router.
-  app.use('/api/products', productRouter);
-  app.use('/api/categories', categoryRouter);
-  app.use('/api/suppliers', supplierRouter);
-
-  app.use(notFound);
-  app.use(errorHandler);
-  return app;
-}
-",
-    "path": "backend/src/app.ts",
-  },
-  {
-    "content": "import 'dotenv/config';
-import { z } from 'zod';
-
-const envSchema = z.object({
-  PORT: z.coerce.number().int().default(3000),
-  DATABASE_URL: z.string().min(1),
-  RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(100),
-  TRUST_PROXY: z.string().default('false'),
-});
-
-const parsed = envSchema.safeParse(process.env);
-if (!parsed.success) {
-  const issues = parsed.error.issues
-    .map((issue) => \`\${issue.path.join('.')}: \${issue.message}\`)
-    .join('; ');
-  throw new Error(\`Biến môi trường không hợp lệ: \${issues}\`);
-}
-
-export const env = parsed.data;
-
-/** "true"/"false", số lớp proxy, hoặc danh sách subnet theo cú pháp của Express */
-export function trustProxySetting(value: string): boolean | number | string {
-  if (value === 'true') return true;
-  if (value === 'false' || value === '') return false;
-  return /^\\d+$/.test(value) ? Number(value) : value;
-}
-",
-    "path": "backend/src/config/env.ts",
-  },
-  {
-    "content": "import { PrismaPg } from '@prisma/adapter-pg';
-import { env } from '../config/env';
-import { PrismaClient } from '../generated/prisma/client';
-
-export const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
-});
-",
-    "path": "backend/src/lib/prisma.ts",
-  },
-  {
-    "content": "import { z } from 'zod';
-import { HttpError } from '../middleware/errorHandler';
-
-export const listQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(10),
-  sort: z.string().optional(),
-  q: z.string().trim().optional(),
-});
-
-export type ListQuery = z.infer<typeof listQuerySchema>;
-
-export function parseListQuery(query: unknown): ListQuery {
-  const result = listQuerySchema.safeParse(query);
-  if (!result.success) {
-    throw new HttpError(
-      422,
-      'VALIDATION_ERROR',
-      'Tham số truy vấn không hợp lệ',
-      result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message,
-      })),
-    );
-  }
-  return result.data;
-}
-
-/** \`name:asc,age:desc\` thành orderBy của Prisma; field lạ trả 422 */
-export function parseSort(
-  sort: string | undefined,
-  allowed: readonly string[],
-): Array<Record<string, 'asc' | 'desc'>> {
-  if (!sort) return [{ createdAt: 'desc' }, { id: 'asc' }];
-  return sort.split(',').map((part) => {
-    const [field, direction = 'asc'] = part.split(':');
-    if (
-      !allowed.includes(field) ||
-      (direction !== 'asc' && direction !== 'desc')
-    ) {
-      throw new HttpError(
-        422,
-        'VALIDATION_ERROR',
-        'Tham số sort không hợp lệ',
-        [
-          {
-            path: 'sort',
-            message: \`"\${part}" không hợp lệ, field hợp lệ: \${allowed.join(', ')}\`,
-          },
-        ],
-      );
-    }
-    return { [field]: direction };
-  });
-}
-",
-    "path": "backend/src/lib/query.ts",
-  },
-  {
-    "content": "import type { NextFunction, Request, Response } from 'express';
-import { Prisma } from '../generated/prisma/client';
-
-export interface ErrorDetail {
-  path: string;
-  message: string;
-}
-
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-    readonly details?: ErrorDetail[],
-  ) {
-    super(message);
-  }
-}
-
-function send(
-  res: Response,
-  status: number,
-  code: string,
-  message: string,
-  details?: ErrorDetail[],
-) {
-  res
-    .status(status)
-    .json({ error: { code, message, ...(details ? { details } : {}) } });
-}
-
-interface UniqueViolationMeta {
-  target?: string[];
-  driverAdapterError?: {
-    cause?: {
-      table?: string;
-      constraint?: { fields?: string[]; index?: string };
-    };
-  };
-}
-
-/** Tên field vi phạm unique; với adapter pg chỉ có tên index dạng \`<bảng>_<field>_key\` */
-function conflictFields(meta: UniqueViolationMeta | undefined): string[] {
-  const cause = meta?.driverAdapterError?.cause;
-  if (meta?.target) return meta.target;
-  if (cause?.constraint?.fields) return cause.constraint.fields;
-  const { index } = cause?.constraint ?? {};
-  const prefix = \`\${cause?.table}_\`;
-  if (index?.startsWith(prefix) && index.endsWith('_key')) {
-    return [index.slice(prefix.length, -'_key'.length)];
-  }
-  return [];
-}
-
-export function notFound(_req: Request, res: Response) {
-  send(res, 404, 'NOT_FOUND', 'Không tìm thấy đường dẫn');
-}
-
-export function errorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  _next: NextFunction,
-) {
-  if (err instanceof HttpError) {
-    return send(res, err.status, err.code, err.message, err.details);
-  }
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    if (err.code === 'P2002') {
-      return send(
-        res,
-        409,
-        'CONFLICT',
-        'Giá trị đã tồn tại',
-        conflictFields(err.meta as UniqueViolationMeta | undefined).map(
-          (path) => ({
-            path,
-            message: 'Giá trị đã tồn tại',
-          }),
-        ),
-      );
-    }
-    if (err.code === 'P2025') {
-      return send(res, 404, 'NOT_FOUND', 'Không tìm thấy bản ghi');
-    }
-  }
-  const status = (err as { status?: number } | null)?.status;
-  if (status === 400 || status === 413) {
-    return send(res, 400, 'BAD_REQUEST', 'Request sai cấu trúc');
-  }
-  console.error(\`\${req.id} \${err instanceof Error ? err.stack : String(err)}\`);
-  send(res, 500, 'INTERNAL_ERROR', 'Lỗi máy chủ');
-}
-",
-    "path": "backend/src/middleware/errorHandler.ts",
-  },
-  {
-    "content": "import { randomUUID } from 'node:crypto';
-import type { NextFunction, Request, Response } from 'express';
-
-declare module 'express-serve-static-core' {
-  interface Request {
-    id?: string;
-  }
-}
-
-export function logger(req: Request, res: Response, next: NextFunction) {
-  const requestId = randomUUID();
-  const startedAt = Date.now();
-  req.id = requestId;
-  res.setHeader('X-Request-Id', requestId);
-  res.on('finish', () => {
-    console.log(
-      \`\${requestId} \${req.method} \${req.originalUrl} \${res.statusCode} \${Date.now() - startedAt}ms\`,
-    );
-  });
-  next();
-}
-",
-    "path": "backend/src/middleware/logger.ts",
-  },
-  {
-    "content": "import type { NextFunction, Request, Response } from 'express';
-import { HttpError } from './errorHandler';
-
-const WINDOW_MS = 60_000;
-
-/** Giới hạn theo IP, đếm trong bộ nhớ của tiến trình (UserApp không có Redis) */
-export function rateLimit(limit: number) {
-  const hits = new Map<string, { count: number; resetAt: number }>();
-
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of hits) if (entry.resetAt <= now) hits.delete(key);
-  }, WINDOW_MS).unref();
-
-  return (req: Request, res: Response, next: NextFunction) => {
-    const now = Date.now();
-    const key = req.ip ?? 'unknown';
-    let entry = hits.get(key);
-    if (!entry || entry.resetAt <= now) {
-      entry = { count: 0, resetAt: now + WINDOW_MS };
-      hits.set(key, entry);
-    }
-    entry.count += 1;
-    if (entry.count > limit) {
-      res.setHeader(
-        'Retry-After',
-        String(Math.ceil((entry.resetAt - now) / 1000)),
-      );
-      throw new HttpError(429, 'RATE_LIMITED', 'Quá nhiều yêu cầu');
-    }
-    next();
-  };
-}
-",
-    "path": "backend/src/middleware/rateLimit.ts",
-  },
-  {
-    "content": "import type { NextFunction, Request, Response } from 'express';
-import type { ZodType } from 'zod';
-import { HttpError } from './errorHandler';
-
-/** Kiểm tra req.body bằng Zod và thay bằng dữ liệu đã parse (field lạ bị bỏ) */
-export function validateBody(schema: ZodType) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    const result = schema.safeParse(req.body ?? {});
-    if (!result.success) {
-      throw new HttpError(
-        422,
-        'VALIDATION_ERROR',
-        'Dữ liệu không hợp lệ',
-        result.error.issues.map((issue) => ({
-          path: issue.path.join('.'),
-          message: issue.message,
-        })),
-      );
-    }
-    req.body = result.data;
-    next();
-  };
-}
-",
-    "path": "backend/src/middleware/validate.ts",
-  },
-  {
-    "content": "import type { Request, Response } from 'express';
-import { parseListQuery } from '../../lib/query';
-import * as service from './category.service';
-
-export async function list(req: Request, res: Response) {
-  res.json(await service.listCategory(parseListQuery(req.query)));
-}
-
-export async function get(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.getCategory(req.params.id) });
-}
-
-export async function create(req: Request, res: Response) {
-  res.status(201).json({ data: await service.createCategory(req.body) });
-}
-
-export async function update(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.updateCategory(req.params.id, req.body) });
-}
-
-export async function remove(req: Request<{ id: string }>, res: Response) {
-  await service.deleteCategory(req.params.id);
-  res.status(204).end();
-}
-",
-    "path": "backend/src/modules/category/category.controller.ts",
-  },
-  {
-    "content": "import { Router } from 'express';
-import { validateBody } from '../../middleware/validate';
-import * as controller from './category.controller';
-import { categoryInputSchema } from './category.schema';
-
-export const categoryRouter = Router();
-
-// Tuần 4: thêm authorize('Category', 'R' | 'C' | 'U' | 'D') trước từng handler.
-categoryRouter.get('/', controller.list);
-categoryRouter.get('/:id', controller.get);
-categoryRouter.post('/', validateBody(categoryInputSchema), controller.create);
-categoryRouter.put(
-  '/:id',
-  validateBody(categoryInputSchema),
-  controller.update,
-);
-categoryRouter.delete('/:id', controller.remove);
-",
-    "path": "backend/src/modules/category/category.routes.ts",
-  },
-  {
-    "content": "import { z } from 'zod';
-
-/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
-export const categoryInputSchema = z.object({
-  title: z.string().min(1).max(255),
-});
-
-export type CategoryInput = z.infer<typeof categoryInputSchema>;
-",
-    "path": "backend/src/modules/category/category.schema.ts",
-  },
-  {
-    "content": "import { Prisma } from '../../generated/prisma/client';
-import { prisma } from '../../lib/prisma';
-import { HttpError } from '../../middleware/errorHandler';
-import { parseSort, type ListQuery } from '../../lib/query';
-import type { CategoryInput } from './category.schema';
-
-const SORTABLE = ['id', 'title', 'createdAt', 'updatedAt'] as const;
-
-const SEARCHABLE = ['title'] as const;
-
-export async function listCategory({ page, pageSize, sort, q }: ListQuery) {
-  const where = (
-    q && SEARCHABLE.length > 0
-      ? {
-          OR: SEARCHABLE.map((field) => ({
-            [field]: { contains: q, mode: 'insensitive' },
-          })),
-        }
-      : {}
-  ) as Prisma.CategoryWhereInput;
-  const [total, data] = await Promise.all([
-    prisma.category.count({ where }),
-    prisma.category.findMany({
-      where,
-      orderBy: parseSort(sort, SORTABLE),
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-  return { data, meta: { page, pageSize, total } };
-}
-
-export async function getCategory(id: string) {
-  const record = await prisma.category.findUnique({ where: { id } });
-  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Category không tồn tại');
-  return record;
-}
-
-export function createCategory(input: CategoryInput) {
-  return prisma.category.create({ data: input });
-}
-
-/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
-const CLEARED = {};
-
-export function updateCategory(id: string, input: CategoryInput) {
-  return prisma.category.update({
-    where: { id },
-    data: { ...CLEARED, ...input },
-  });
-}
-
-export async function deleteCategory(id: string) {
-  await prisma.category.delete({ where: { id } });
-}
-",
-    "path": "backend/src/modules/category/category.service.ts",
-  },
-  {
-    "content": "import type { Request, Response } from 'express';
-import { parseListQuery } from '../../lib/query';
-import * as service from './product.service';
-
-export async function list(req: Request, res: Response) {
-  res.json(await service.listProduct(parseListQuery(req.query)));
-}
-
-export async function get(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.getProduct(req.params.id) });
-}
-
-export async function create(req: Request, res: Response) {
-  res.status(201).json({ data: await service.createProduct(req.body) });
-}
-
-export async function update(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.updateProduct(req.params.id, req.body) });
-}
-
-export async function remove(req: Request<{ id: string }>, res: Response) {
-  await service.deleteProduct(req.params.id);
-  res.status(204).end();
-}
-",
-    "path": "backend/src/modules/product/product.controller.ts",
-  },
-  {
-    "content": "import { Router } from 'express';
-import { validateBody } from '../../middleware/validate';
-import * as controller from './product.controller';
-import { productInputSchema } from './product.schema';
-
-export const productRouter = Router();
-
-// Tuần 4: thêm authorize('Product', 'R' | 'C' | 'U' | 'D') trước từng handler.
-productRouter.get('/', controller.list);
-productRouter.get('/:id', controller.get);
-productRouter.post('/', validateBody(productInputSchema), controller.create);
-productRouter.put('/:id', validateBody(productInputSchema), controller.update);
-productRouter.delete('/:id', controller.remove);
-",
-    "path": "backend/src/modules/product/product.routes.ts",
-  },
-  {
-    "content": "import { z } from 'zod';
-
-/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
-export const productInputSchema = z.object({
-  name: z.string().min(1).max(255),
-  sku: z.string().min(1).max(255),
-  description: z.string().max(65535).nullish(),
-  price: z.number(),
-  quantity: z.number().default(0),
-  category: z
-    .enum(['Electronics', 'Clothing', 'Food', 'Other'])
-    .default('Other')
-    .nullable(),
-  inStock: z.boolean().default(true).nullable(),
-  releasedAt: z.coerce.date().nullish(),
-});
-
-export type ProductInput = z.infer<typeof productInputSchema>;
-",
-    "path": "backend/src/modules/product/product.schema.ts",
-  },
-  {
-    "content": "import { Prisma } from '../../generated/prisma/client';
-import { prisma } from '../../lib/prisma';
-import { HttpError } from '../../middleware/errorHandler';
-import { parseSort, type ListQuery } from '../../lib/query';
-import type { ProductInput } from './product.schema';
-
-const SORTABLE = [
-  'id',
-  'name',
-  'sku',
-  'description',
-  'price',
-  'quantity',
-  'category',
-  'inStock',
-  'releasedAt',
-  'createdAt',
-  'updatedAt',
-] as const;
-
-const SEARCHABLE = ['name', 'sku', 'description'] as const;
-
-export async function listProduct({ page, pageSize, sort, q }: ListQuery) {
-  const where = (
-    q && SEARCHABLE.length > 0
-      ? {
-          OR: SEARCHABLE.map((field) => ({
-            [field]: { contains: q, mode: 'insensitive' },
-          })),
-        }
-      : {}
-  ) as Prisma.ProductWhereInput;
-  const [total, data] = await Promise.all([
-    prisma.product.count({ where }),
-    prisma.product.findMany({
-      where,
-      orderBy: parseSort(sort, SORTABLE),
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-  return { data, meta: { page, pageSize, total } };
-}
-
-export async function getProduct(id: string) {
-  const record = await prisma.product.findUnique({ where: { id } });
-  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Product không tồn tại');
-  return record;
-}
-
-export function createProduct(input: ProductInput) {
-  return prisma.product.create({ data: input });
-}
-
-/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
-const CLEARED = {
-  description: null,
-  category: null,
-  inStock: null,
-  releasedAt: null,
-};
-
-export function updateProduct(id: string, input: ProductInput) {
-  return prisma.product.update({
-    where: { id },
-    data: { ...CLEARED, ...input },
-  });
-}
-
-export async function deleteProduct(id: string) {
-  await prisma.product.delete({ where: { id } });
-}
-",
-    "path": "backend/src/modules/product/product.service.ts",
-  },
-  {
-    "content": "import type { Request, Response } from 'express';
-import { parseListQuery } from '../../lib/query';
-import * as service from './supplier.service';
-
-export async function list(req: Request, res: Response) {
-  res.json(await service.listSupplier(parseListQuery(req.query)));
-}
-
-export async function get(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.getSupplier(req.params.id) });
-}
-
-export async function create(req: Request, res: Response) {
-  res.status(201).json({ data: await service.createSupplier(req.body) });
-}
-
-export async function update(req: Request<{ id: string }>, res: Response) {
-  res.json({ data: await service.updateSupplier(req.params.id, req.body) });
-}
-
-export async function remove(req: Request<{ id: string }>, res: Response) {
-  await service.deleteSupplier(req.params.id);
-  res.status(204).end();
-}
-",
-    "path": "backend/src/modules/supplier/supplier.controller.ts",
-  },
-  {
-    "content": "import { Router } from 'express';
-import { validateBody } from '../../middleware/validate';
-import * as controller from './supplier.controller';
-import { supplierInputSchema } from './supplier.schema';
-
-export const supplierRouter = Router();
-
-// Tuần 4: thêm authorize('Supplier', 'R' | 'C' | 'U' | 'D') trước từng handler.
-supplierRouter.get('/', controller.list);
-supplierRouter.get('/:id', controller.get);
-supplierRouter.post('/', validateBody(supplierInputSchema), controller.create);
-supplierRouter.put(
-  '/:id',
-  validateBody(supplierInputSchema),
-  controller.update,
-);
-supplierRouter.delete('/:id', controller.remove);
-",
-    "path": "backend/src/modules/supplier/supplier.routes.ts",
-  },
-  {
-    "content": "import { z } from 'zod';
-
-/** Dùng cho cả tạo mới và cập nhật; id, createdAt, updatedAt do server quản lý nên bị bỏ qua */
-export const supplierInputSchema = z.object({
-  companyName: z.string().min(1).max(255),
-  active: z.boolean().default(true),
-});
-
-export type SupplierInput = z.infer<typeof supplierInputSchema>;
-",
-    "path": "backend/src/modules/supplier/supplier.schema.ts",
-  },
-  {
-    "content": "import { Prisma } from '../../generated/prisma/client';
-import { prisma } from '../../lib/prisma';
-import { HttpError } from '../../middleware/errorHandler';
-import { parseSort, type ListQuery } from '../../lib/query';
-import type { SupplierInput } from './supplier.schema';
-
-const SORTABLE = [
-  'id',
-  'companyName',
-  'active',
-  'createdAt',
-  'updatedAt',
-] as const;
-
-const SEARCHABLE = ['companyName'] as const;
-
-export async function listSupplier({ page, pageSize, sort, q }: ListQuery) {
-  const where = (
-    q && SEARCHABLE.length > 0
-      ? {
-          OR: SEARCHABLE.map((field) => ({
-            [field]: { contains: q, mode: 'insensitive' },
-          })),
-        }
-      : {}
-  ) as Prisma.SupplierWhereInput;
-  const [total, data] = await Promise.all([
-    prisma.supplier.count({ where }),
-    prisma.supplier.findMany({
-      where,
-      orderBy: parseSort(sort, SORTABLE),
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-  return { data, meta: { page, pageSize, total } };
-}
-
-export async function getSupplier(id: string) {
-  const record = await prisma.supplier.findUnique({ where: { id } });
-  if (!record) throw new HttpError(404, 'NOT_FOUND', 'Supplier không tồn tại');
-  return record;
-}
-
-export function createSupplier(input: SupplierInput) {
-  return prisma.supplier.create({ data: input });
-}
-
-/** Cập nhật toàn bộ: field tùy chọn không gửi sẽ về null */
-const CLEARED = {};
-
-export function updateSupplier(id: string, input: SupplierInput) {
-  return prisma.supplier.update({
-    where: { id },
-    data: { ...CLEARED, ...input },
-  });
-}
-
-export async function deleteSupplier(id: string) {
-  await prisma.supplier.delete({ where: { id } });
-}
-",
-    "path": "backend/src/modules/supplier/supplier.service.ts",
-  },
-  {
-    "content": "import { createApp } from './app';
-import { env } from './config/env';
-import { prisma } from './lib/prisma';
-
-const server = createApp().listen(env.PORT, () => {
-  console.log('inventory', 'backend lắng nghe tại cổng', env.PORT);
-});
-
-async function shutdown() {
-  server.close();
-  await prisma.$disconnect();
-  process.exit(0);
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-",
-    "path": "backend/src/server.ts",
-  },
-  {
-    "content": "{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src"]
-}
-",
-    "path": "backend/tsconfig.json",
   },
 ]
 `;

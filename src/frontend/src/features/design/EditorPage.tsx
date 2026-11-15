@@ -15,7 +15,9 @@ import { useSchemaStore } from '../../core/schema-store'
 import { Canvas } from './canvas/Canvas'
 import type { DropData } from './canvas/drag'
 import type { NodeDragData } from './canvas/NodeView'
+import { PagesPanel } from './pages/PagesPanel'
 import { Palette, type PaletteDragData } from './palette/Palette'
+import { PreviewPane } from './preview/PreviewPane'
 import { Properties } from './properties/Properties'
 import './EditorPage.css'
 
@@ -39,6 +41,7 @@ export function EditorPage() {
   const move = useSchemaStore((s) => s.move)
   const load = useSchemaStore((s) => s.load)
   const [chosenPageId, setChosenPageId] = useState<string>()
+  const [mode, setMode] = useState<'design' | 'preview'>('design')
   const [dragLabel, setDragLabel] = useState<string>()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const page = pages.find((p) => p.id === chosenPageId) ?? pages[0]
@@ -77,24 +80,38 @@ export function EditorPage() {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDragLabel(undefined)}
     >
-      <div className="editor">
-        <Palette />
+      <div className={mode === 'design' ? 'editor' : 'editor editor-preview'}>
+        {mode === 'design' && (
+          <div className="editor-side">
+            <PagesPanel pageId={page?.id} onSelect={setChosenPageId} />
+            <Palette />
+          </div>
+        )}
         <div className="editor-main">
           <div className="editor-toolbar">
-            {pages.length > 1 && (
-              <select aria-label="Trang" value={page?.id} onChange={(e) => setChosenPageId(e.target.value)}>
-                {pages.map((p) => <option key={p.id} value={p.id}>{p.title} ({p.route})</option>)}
-              </select>
-            )}
+            <button type="button" aria-pressed={mode === 'design'} onClick={() => setMode('design')}>
+              Thiết kế
+            </button>
+            <button type="button" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')}>
+              Xem trước
+            </button>
             {import.meta.env.DEV && (
               <button type="button" onClick={() => load(structuredClone(schoolAdminSample))}>
                 Nạp schema mẫu
               </button>
             )}
           </div>
-          {page ? <Canvas pageId={page.id} /> : <p className="hint">Project chưa có trang nào</p>}
+          {mode === 'preview' ? (
+            <div className="canvas">
+              <PreviewPane pageId={page?.id} />
+            </div>
+          ) : page ? (
+            <Canvas pageId={page.id} />
+          ) : (
+            <p className="hint">Project chưa có trang nào</p>
+          )}
         </div>
-        <Properties />
+        {mode === 'design' && <Properties />}
       </div>
       <DragOverlay dropAnimation={null}>{dragLabel ? <div className="drag-chip">{dragLabel}</div> : null}</DragOverlay>
     </DndContext>

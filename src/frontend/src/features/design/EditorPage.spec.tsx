@@ -139,4 +139,85 @@ describe('EditorPage (render trong jsdom, chưa kiểm thử kéo thả bằng t
     const root = await renderEditor()
     expect([...root.querySelectorAll('.pv-form .pv-field span')].map((e) => e.textContent)).toEqual(['name', 'email', 'age'])
   })
+
+  describe('quản lý trang', () => {
+    const project = () => useSchemaStore.getState().project
+    const button = (root: HTMLElement, label: string) => root.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+
+    it('thêm trang mới, chọn nó và canvas chuyển sang trang đó', async () => {
+      const root = await renderEditor()
+      await act(async () =>
+        [...root.querySelectorAll('button')].find((b) => b.textContent === 'Thêm trang')!.click(),
+      )
+      expect(project().pages.map((p) => p.id)).toEqual(['p1', 'p2'])
+      expect([...root.querySelectorAll('.page-item')].map((el) => el.classList.contains('page-current'))).toEqual([false, true])
+      expect(root.querySelector<HTMLInputElement>('#page-route')!.value).toBe('/trang-2')
+    })
+
+    it('đổi route: route sai bị từ chối và hiện lỗi, route đúng được ghi vào schema', async () => {
+      const root = await renderEditor()
+      const route = root.querySelector<HTMLInputElement>('#page-route')!
+      await act(async () => setValue(route, 'khong-co-slash'))
+      await act(async () => route.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+      expect(root.querySelector('[role="alert"]')?.textContent).toContain('bắt đầu')
+      expect(project().pages[0].route).toBe('/')
+
+      await act(async () => setValue(root.querySelector<HTMLInputElement>('#page-route')!, '/home'))
+      await act(async () =>
+        root.querySelector('#page-route')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+      )
+      expect(project().pages[0].route).toBe('/home')
+      expect(root.querySelector('[role="alert"]')).toBeNull()
+    })
+
+    it('chọn role được xem lấy từ roles của schema', async () => {
+      act(() => useSchemaStore.getState().load(structuredClone(schoolAdminSample)))
+      const root = await renderEditor()
+      const boxes = [...root.querySelectorAll<HTMLInputElement>('.page-settings .prop-checks input')]
+      expect(boxes.map((b) => b.parentElement?.textContent)).toEqual(['admin', 'user'])
+      await act(async () => boxes[0].click())
+      expect(project().pages[0].requireRole).toEqual(['user'])
+    })
+
+    it('trang cuối cùng không xóa được; có nhiều trang thì xóa và đổi thứ tự được', async () => {
+      const root = await renderEditor()
+      await act(async () => button(root, 'Xóa Trang chủ').click())
+      expect(project().pages).toHaveLength(1)
+      expect(root.querySelector('[role="alert"]')?.textContent).toContain('ít nhất một trang')
+
+      await act(async () => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Thêm trang')!.click())
+      await act(async () => button(root, 'Đưa Trang mới lên').click())
+      expect(project().pages.map((p) => p.id)).toEqual(['p2', 'p1'])
+      await act(async () => button(root, 'Xóa Trang mới').click())
+      expect(project().pages.map((p) => p.id)).toEqual(['p1'])
+    })
+
+    it('Tạo trang từ entity thả sẵn Heading + Table + Button', async () => {
+      act(() => useSchemaStore.getState().load(structuredClone(schoolAdminSample)))
+      const root = await renderEditor()
+      await act(async () => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Tạo trang')!.click())
+      const created = project().pages.at(-1)!
+      expect(created.title).toBe('Danh sách Student')
+      expect(created.components.map((c) => c.type)).toEqual(['Heading', 'Table', 'Button'])
+      expect(root.querySelector('.pv-table th')?.textContent).toBe('name')
+    })
+  })
+
+  describe('chế độ xem trước', () => {
+    it('chuyển Thiết kế <-> Xem trước và vẽ UI thật từ schema', async () => {
+      act(() => useSchemaStore.getState().load(structuredClone(schoolAdminSample)))
+      const root = await renderEditor()
+      const tab = (label: string) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)!
+      expect(root.querySelector('.rp-app')).toBeNull()
+
+      await act(async () => tab('Xem trước').click())
+      expect(root.querySelector('.palette-item')).toBeNull()
+      expect(root.querySelectorAll('.rp-app tbody tr').length).toBe(10)
+      expect([...root.querySelectorAll('.rp-nav')].map((b) => b.textContent)).toEqual(['Sinh viên'])
+
+      await act(async () => tab('Thiết kế').click())
+      expect(root.querySelector('.rp-app')).toBeNull()
+      expect(root.querySelector('.palette-item')).not.toBeNull()
+    })
+  })
 })

@@ -1,0 +1,18 @@
+export interface ListParams {
+  page?: number
+  pageSize?: number
+  /** Ví dụ `name:asc` */
+  sort?: string
+  q?: string
+}
+
+export interface ListMeta {
+  page: number
+  pageSize: number
+  total: number
+}
+
+export interface ListResult<T> {
+  data: T[]
+  meta: ListMeta
+}
