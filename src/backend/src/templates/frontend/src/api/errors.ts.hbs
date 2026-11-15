@@ -34,3 +34,9 @@ export function parseApiError(error: unknown): ApiErrorInfo {
 export function errorMessage(error: unknown): string {
   return parseApiError(error).message
 }
+
+/** Thông báo khi xóa thất bại: 409 nghĩa là bản ghi còn được bản ghi khác tham chiếu. */
+export function deleteErrorMessage(error: unknown): string {
+  const info = parseApiError(error)
+  return info.status === 409 ? 'Không thể xóa: bản ghi đang được tham chiếu bởi bản ghi khác' : info.message
+}

@@ -6,16 +6,13 @@ import ProtectedRoute from './auth/ProtectedRoute'
 import AppLayout from './layout/AppLayout'
 import PagePlaceholder from './pages/PagePlaceholder'
 import { isReserved } from './routes'
+{{#each pages}}
+import {{this.componentName}} from './pages/{{this.componentName}}'
+{{/each}}
 {{#each entities}}
 import {{this.pascal}}List from './pages/{{this.kebab}}/ListPage'
 import {{this.pascal}}Form from './pages/{{this.kebab}}/FormPage'
 import {{this.pascal}}Detail from './pages/{{this.kebab}}/DetailPage'
-{{/each}}
-{{#each pages}}
-
-function {{this.componentName}}() {
-  return <PagePlaceholder title="{{this.title}}" />
-}
 {{/each}}
 
 interface CustomPage {
@@ -24,11 +21,11 @@ interface CustomPage {
   element: ReactElement
 }
 
-const customPages: CustomPage[] = [
+const customPages = ([
 {{#each pages}}
   { route: {{{json this.route}}}, requireRole: {{{json this.requireRole}}}, element: <{{this.componentName}} /> },
 {{/each}}
-].filter((page) => !isReserved(page.route))
+] as CustomPage[]).filter((page) => !isReserved(page.route))
 
 export default function App() {
   return (

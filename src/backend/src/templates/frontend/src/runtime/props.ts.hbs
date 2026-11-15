@@ -1,0 +1,25 @@
+/** Props của component đến từ schema nên không có kiểu cố định; các hàm này ép về kiểu cần dùng với giá trị mặc định. */
+export type Props = Record<string, unknown>
+
+export function str(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : value === undefined || value === null ? fallback : String(value)
+}
+
+export function num(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  return value === undefined || value === null || value === '' || Number.isNaN(n) ? fallback : n
+}
+
+export function bool(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+export function list(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : []
+}
+
+export function oneOf<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+  return options.includes(value as T) ? (value as T) : fallback
+}
+
+export const ALIGN = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' } as const

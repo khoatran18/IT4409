@@ -1,15 +1,20 @@
-import type { FieldMeta } from '../lib/fields'
+import type { FieldMeta, RefLabel } from '../lib/fields'
 
 export interface {{entity.pascal}} {
   id: string
 {{#each entity.fields}}
+{{#if this.ref}}
+  {{this.name}}{{#unless this.required}}?{{/unless}}: RefLabel{{#unless this.required}} | null{{/unless}}
+  {{this.ref.idName}}?: string | null
+{{else}}
   {{this.name}}{{#unless this.required}}?{{/unless}}: {{#if (eq this.type "number")}}number{{else if (eq this.type "boolean")}}boolean{{else if (eq this.type "enum")}}{{#if this.options.length}}{{#each this.options}}{{{json this}}}{{#unless @last}} | {{/unless}}{{/each}}{{else}}string{{/if}}{{else}}string{{/if}}{{#unless this.required}} | null{{/unless}}
+{{/if}}
 {{/each}}
   createdAt: string
   updatedAt: string
 }
 
-/** Body tạo/sửa: server tự quản lý id, createdAt, updatedAt */
-export type {{entity.pascal}}Input = Omit<{{entity.pascal}}, 'id' | 'createdAt' | 'updatedAt'>
+/** Body tạo/sửa: server tự quản lý id, createdAt, updatedAt; field ref gửi bằng `<field>Id` nên bản ghi rút gọn không có trong body */
+export type {{entity.pascal}}Input = Omit<{{entity.pascal}}, 'id' | 'createdAt' | 'updatedAt'{{#each entity.fields}}{{#if this.ref}} | {{{json this.name}}}{{/if}}{{/each}}>
 
 export const {{entity.camel}}Fields: FieldMeta[] = {{{json entity.fields}}}

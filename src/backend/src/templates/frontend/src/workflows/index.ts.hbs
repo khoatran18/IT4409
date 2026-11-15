@@ -1,0 +1,18 @@
+/** Workflow có trong schema; code chạy workflow sẽ được sinh ở bản sau, hiện chỉ có phần giữ chỗ. */
+export const workflowIds: string[] = [
+{{#each schema.workflows}}
+  {{{json this.id}}},
+{{/each}}
+]
+
+export interface WorkflowContext {
+  /** Giá trị các ô nhập của trang hoặc dữ liệu form */
+  values: Record<string, unknown>
+  /** Tham số của sự kiện, ví dụ `id` của dòng vừa bấm trong Table */
+  params?: Record<string, unknown>
+  navigate: (to: string) => void
+}
+
+export async function runWorkflow(id: string, context: WorkflowContext): Promise<void> {
+  console.warn(`Workflow "${id}" chưa được sinh code`, context.values)
+}

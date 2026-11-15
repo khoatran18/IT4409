@@ -17,11 +17,11 @@ const entityMenu: MenuItem[] = [
 {{/each}}
 ]
 
-const pageMenu: MenuItem[] = [
+const pageMenu = ([
 {{#each pages}}
   { title: {{{json this.title}}}, route: {{{json this.route}}}, requireRole: {{{json this.requireRole}}} },
 {{/each}}
-].filter((item) => !isReserved(item.route))
+] as MenuItem[]).filter((item) => !isReserved(item.route))
 
 const menu: MenuItem[] = [...entityMenu, ...pageMenu]
 

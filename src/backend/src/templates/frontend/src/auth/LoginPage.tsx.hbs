@@ -1,9 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { parseApiError } from '../api/errors'
 import { useAuth } from './AuthContext'
 
 const style = { padding: 24, maxWidth: 360 }
 const formStyle = { display: 'grid', gap: 12 }
+
+/** 401: sai email hoặc mật khẩu; 403: tài khoản bị khóa; còn lại hiện thông báo của server. */
+function loginErrorMessage(error: unknown): string {
+  const info = parseApiError(error)
+  if (info.status === 401) return 'Sai email hoặc mật khẩu'
+  if (info.status === 403) return 'Tài khoản đã bị khóa, hãy liên hệ quản trị viên'
+  return info.message
+}
 
 export default function LoginPage() {
   const { user, login } = useAuth()
@@ -22,8 +31,8 @@ export default function LoginPage() {
     try {
       await login(email, password)
       navigate(from, { replace: true })
-    } catch {
-      setError('Sai email hoặc mật khẩu')
+    } catch (err) {
+      setError(loginErrorMessage(err))
     }
   }
 

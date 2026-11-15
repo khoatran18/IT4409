@@ -1,0 +1,42 @@
+import type { ListParams, ListResult } from '../api/types'
+{{#each entities}}
+import { {{this.camel}}Api } from '../api/{{this.kebab}}.api'
+import { {{this.camel}}Fields } from '../types/{{this.kebab}}'
+{{/each}}
+import type { FieldMeta } from './fields'
+
+export type Row = Record<string, unknown> & { id: string }
+
+/** Bề mặt chung của api từng entity, để component kéo thả dùng được cho entity bất kỳ. */
+export interface EntityApi {
+  list: (params?: ListParams) => Promise<ListResult<Row>>
+  get: (id: string) => Promise<Row>
+  create: (input: Record<string, unknown>) => Promise<Row>
+  update: (id: string, input: Record<string, unknown>) => Promise<Row>
+  remove: (id: string) => Promise<void>
+}
+
+export interface EntityInfo {
+  name: string
+  /** Đường dẫn trang danh sách, ví dụ /students */
+  path: string
+  displayField: string
+  fields: FieldMeta[]
+  api: EntityApi
+}
+
+export const entities: Record<string, EntityInfo> = {
+{{#each entities}}
+  {{{json this.name}}}: {
+    name: {{{json this.name}}},
+    path: '/{{this.pluralKebab}}',
+    displayField: {{{json this.displayField}}},
+    fields: {{this.camel}}Fields,
+    api: {{this.camel}}Api as unknown as EntityApi,
+  },
+{{/each}}
+}
+
+export function findEntity(name: string): EntityInfo | undefined {
+  return entities[name]
+}

@@ -1,0 +1,17 @@
+import type { CSSProperties } from 'react'
+{{#each (pageComponents page.id)}}
+import {{this}} from '../components/{{this}}'
+{{/each}}
+import { PageStateProvider } from '../runtime/PageState'
+
+const pageStyle: CSSProperties = { display: 'grid', gap: 16, padding: 24, alignContent: 'start' }
+
+export default function {{page.componentName}}() {
+  return (
+    <PageStateProvider>
+      <main style={pageStyle}>
+        {{{pageJsx page.id}}}
+      </main>
+    </PageStateProvider>
+  )
+}

@@ -1,0 +1,45 @@
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { runWorkflow } from '../workflows'
+
+interface PageState {
+  /** Giá trị các ô Input/Select/Checkbox có `bindField` của trang */
+  values: Record<string, unknown>
+  setValue: (name: string, value: unknown) => void
+}
+
+const PageContext = createContext<PageState | null>(null)
+
+export function PageStateProvider({ children }: { children?: ReactNode }) {
+  const [values, setValues] = useState<Record<string, unknown>>({})
+  const setValue = useCallback((name: string, value: unknown) => setValues((all) => ({ ...all, [name]: value })), [])
+  const state = useMemo(() => ({ values, setValue }), [values, setValue])
+  return <PageContext.Provider value={state}>{children}</PageContext.Provider>
+}
+
+export function usePageState(): PageState {
+  const state = useContext(PageContext)
+  if (!state) throw new Error('usePageState phải nằm trong PageStateProvider')
+  return state
+}
+
+export interface FireOptions {
+  /** Giá trị truyền vào workflow; mặc định là các ô bind của trang */
+  values?: Record<string, unknown>
+  params?: Record<string, unknown>
+}
+
+/** Trả về hàm chạy workflow gắn vào sự kiện của component; kết quả cho biết sự kiện có workflow hay không. */
+export function useFire(events?: Record<string, string>) {
+  const navigate = useNavigate()
+  const { values } = usePageState()
+  return useCallback(
+    (event: string, options: FireOptions = {}): boolean => {
+      const id = events?.[event]
+      if (!id) return false
+      void runWorkflow(id, { values: options.values ?? values, params: options.params, navigate })
+      return true
+    },
+    [events, values, navigate],
+  )
+}

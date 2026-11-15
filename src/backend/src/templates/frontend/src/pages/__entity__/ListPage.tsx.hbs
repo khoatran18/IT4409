@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
-import { errorMessage } from '../../api/errors'
+import { deleteErrorMessage, errorMessage } from '../../api/errors'
 import type { ListMeta } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
 import { formatValue } from '../../lib/fields'
@@ -75,7 +75,7 @@ export default function {{entity.pascal}}List() {
       if (rows.length === 1 && page > 1) setPage(page - 1)
       else setReloadKey((key) => key + 1)
     } catch (e) {
-      setError(errorMessage(e))
+      setError(deleteErrorMessage(e))
     }
   }
 
@@ -98,9 +98,9 @@ export default function {{entity.pascal}}List() {
         <thead>
           <tr>
 {{#each entity.fields}}
-            <th style={sortableStyle} onClick={() => toggleSort({{{json this.name}}})}>
+            <th style={sortableStyle} onClick={() => toggleSort({{#if this.ref}}{{{json this.ref.idName}}}{{else}}{{{json this.name}}}{{/if}})}>
               {{this.name}}
-              {sortMark({{{json this.name}}})}
+              {sortMark({{#if this.ref}}{{{json this.ref.idName}}}{{else}}{{{json this.name}}}{{/if}})}
             </th>
 {{/each}}
             {(canUpdate || canDelete) && <th style={cellStyle} />}

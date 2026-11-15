@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
-import { errorMessage } from '../../api/errors'
+import { deleteErrorMessage, errorMessage } from '../../api/errors'
 import { useAuth } from '../../auth/AuthContext'
 import { formatDateTime, formatValue } from '../../lib/fields'
 import type { {{entity.pascal}} } from '../../types/{{entity.kebab}}'
@@ -41,7 +41,7 @@ export default function {{entity.pascal}}Detail() {
       await {{entity.camel}}Api.remove(record.id)
       navigate('/{{entity.pluralKebab}}')
     } catch (e) {
-      setError(errorMessage(e))
+      setError(deleteErrorMessage(e))
     }
   }
 

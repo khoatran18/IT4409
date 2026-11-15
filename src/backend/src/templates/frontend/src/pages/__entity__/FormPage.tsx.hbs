@@ -2,7 +2,8 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { {{entity.camel}}Api } from '../../api/{{entity.kebab}}.api'
 import { parseApiError } from '../../api/errors'
-import { initialValues, toPayload, validate, type FormValues } from '../../lib/fields'
+import RefSelect from '../../components/RefSelect'
+import { initialValues, mapFieldErrors, toPayload, validate, type FormValues } from '../../lib/fields'
 import { {{entity.camel}}Fields, type {{entity.pascal}}Input } from '../../types/{{entity.kebab}}'
 
 const pageStyle: CSSProperties = { padding: 24, maxWidth: 520 }
@@ -61,7 +62,7 @@ export default function {{entity.pascal}}Form() {
       navigate('/{{entity.pluralKebab}}')
     } catch (err) {
       const info = parseApiError(err)
-      setErrors(info.fields)
+      setErrors(mapFieldErrors({{entity.camel}}Fields, info.fields))
       setFormError(Object.keys(info.fields).length > 0 ? '' : info.message)
     } finally {
       setSaving(false)
@@ -99,6 +100,13 @@ export default function {{entity.pascal}}Form() {
             rows={4}
             value={String(values[{{{json this.name}}}])}
             onChange={(e) => setValue({{{json this.name}}}, e.target.value)}
+          />
+{{else if this.ref}}
+          <RefSelect
+            entity={{{json this.ref.name}}}
+            name={{{json this.name}}}
+            value={String(values[{{{json this.name}}}])}
+            onChange={(id) => setValue({{{json this.name}}}, id)}
           />
 {{else if (eq this.type "enum")}}
           <select
