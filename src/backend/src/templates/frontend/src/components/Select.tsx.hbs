@@ -1,0 +1,41 @@
+import { useState, type CSSProperties } from 'react'
+import { useFire, usePageState } from '../runtime/PageState'
+import { list, str, type Props } from '../runtime/props'
+import RefSelect from './RefSelect'
+
+const fieldStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 14 }
+
+/** Lựa chọn lấy từ `options` hoặc, nếu chọn entity, từ bản ghi của entity đó (giá trị là id, nhãn là displayField). */
+export default function Select({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const { values, setValue } = usePageState()
+  const fire = useFire(events)
+  const [local, setLocal] = useState('')
+  const field = str(props.bindField)
+  const value = field ? str(values[field]) : local
+  const options = list(props.options)
+  const entity = str(props.entity)
+
+  function change(next: string) {
+    if (field) setValue(field, next)
+    else setLocal(next)
+    fire('onChange', { values: field ? { ...values, [field]: next } : values })
+  }
+
+  return (
+    <label style={fieldStyle}>
+      {str(props.label) && <span>{str(props.label)}</span>}
+      {options.length === 0 && entity ? (
+        <RefSelect entity={entity} value={value} onChange={change} />
+      ) : (
+        <select value={value} onChange={(e) => change(e.target.value)}>
+          <option value="">-- chọn --</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      )}
+    </label>
+  )
+}

@@ -1,0 +1,8 @@
+import type { CSSProperties } from 'react'
+
+const style: CSSProperties = { padding: 8, border: '1px dashed #d33', color: '#d33' }
+
+/** Giữ chỗ cho component chưa có template, để trang vẫn biên dịch và hiện cảnh báo thay vì vỡ. */
+export default function Unsupported({ type }: { type: string }) {
+  return <div style={style}>Component "{type}" chưa được hỗ trợ</div>
+}

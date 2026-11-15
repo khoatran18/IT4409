@@ -1,0 +1,13 @@
+import type { CSSProperties, ReactNode } from 'react'
+import { ALIGN, bool, num, oneOf, type Props } from '../runtime/props'
+
+export default function Container({ props, children }: { props: Props; children?: ReactNode }) {
+  const style: CSSProperties = {
+    display: 'flex',
+    flexDirection: props.direction === 'row' ? 'row' : 'column',
+    gap: num(props.gap, 16),
+    alignItems: ALIGN[oneOf(props.align, ['start', 'center', 'end', 'stretch'] as const, 'stretch')],
+    flexWrap: bool(props.wrap) ? 'wrap' : 'nowrap',
+  }
+  return <div style={style}>{children}</div>
+}

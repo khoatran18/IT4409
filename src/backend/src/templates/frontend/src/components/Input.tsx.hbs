@@ -1,0 +1,31 @@
+import { useState, type CSSProperties } from 'react'
+import { useFire, usePageState } from '../runtime/PageState'
+import { oneOf, str, type Props } from '../runtime/props'
+
+const fieldStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 14 }
+
+export default function Input({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const { values, setValue } = usePageState()
+  const fire = useFire(events)
+  const [local, setLocal] = useState('')
+  const field = str(props.bindField)
+  const value = field ? str(values[field]) : local
+
+  function change(next: string) {
+    if (field) setValue(field, next)
+    else setLocal(next)
+    fire('onChange', { values: field ? { ...values, [field]: next } : values })
+  }
+
+  return (
+    <label style={fieldStyle}>
+      {str(props.label) && <span>{str(props.label)}</span>}
+      <input
+        type={oneOf(props.type, ['text', 'number', 'password', 'email'] as const, 'text')}
+        placeholder={str(props.placeholder)}
+        value={value}
+        onChange={(e) => change(e.target.value)}
+      />
+    </label>
+  )
+}

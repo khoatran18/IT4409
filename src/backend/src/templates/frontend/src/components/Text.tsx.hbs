@@ -1,0 +1,12 @@
+import type { CSSProperties } from 'react'
+import { oneOf, str, type Props } from '../runtime/props'
+
+const SIZES = { sm: 12, md: 16, lg: 24 } as const
+
+export default function Text({ props }: { props: Props }) {
+  const style: CSSProperties = {
+    fontSize: SIZES[oneOf(props.size, ['sm', 'md', 'lg'] as const, 'md')],
+    fontWeight: props.weight === 'bold' ? 700 : 400,
+  }
+  return <span style={style}>{str(props.content, 'Text')}</span>
+}

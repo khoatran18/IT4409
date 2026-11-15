@@ -1,0 +1,9 @@
+import { num, str, type Props } from '../runtime/props'
+
+const margin = { margin: 0 }
+
+export default function Heading({ props }: { props: Props }) {
+  const level = Math.min(Math.max(Math.round(num(props.level, 2)), 1), 6)
+  const Tag = `h${level}` as 'h1'
+  return <Tag style={margin}>{str(props.text, 'Tiêu đề')}</Tag>
+}

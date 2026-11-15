@@ -1,0 +1,14 @@
+import type { CSSProperties, ReactNode } from 'react'
+import { str, type Props } from '../runtime/props'
+
+const style: CSSProperties = { display: 'grid', gap: 12, padding: 16, border: '1px solid #ddd', borderRadius: 8 }
+
+export default function Card({ props, children }: { props: Props; children?: ReactNode }) {
+  const title = str(props.title)
+  return (
+    <section style={style}>
+      {title && <strong>{title}</strong>}
+      {children}
+    </section>
+  )
+}

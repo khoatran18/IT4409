@@ -1,0 +1,13 @@
+import type { CSSProperties, ReactNode } from 'react'
+import { ALIGN, num, oneOf, type Props } from '../runtime/props'
+
+export default function Grid({ props, children }: { props: Props; children?: ReactNode }) {
+  const columns = Math.min(Math.max(Math.round(num(props.columns, 2)), 1), 4)
+  const style: CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+    gap: num(props.gap, 16),
+    alignItems: ALIGN[oneOf(props.align, ['start', 'center', 'end', 'stretch'] as const, 'stretch')],
+  }
+  return <div style={style}>{children}</div>
+}

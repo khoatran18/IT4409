@@ -1,0 +1,131 @@
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { useParams } from 'react-router-dom'
+import { parseApiError } from '../api/errors'
+import { initialValues, mapFieldErrors, toPayload, validate, type FieldMeta, type FormValues } from '../lib/fields'
+import { findEntity } from '../lib/entities'
+import { useFire } from '../runtime/PageState'
+import { str, type Props } from '../runtime/props'
+import RefSelect from './RefSelect'
+
+const formStyle: CSSProperties = { display: 'grid', gap: 12, maxWidth: 520 }
+const labelStyle: CSSProperties = { display: 'grid', gap: 4 }
+const checkStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' }
+const errorStyle: CSSProperties = { color: '#b91c1c', fontSize: 13 }
+const okStyle: CSSProperties = { color: '#15803d', fontSize: 13 }
+
+function FieldInput({ field, value, onChange }: { field: FieldMeta; value: string | boolean; onChange: (v: string | boolean) => void }) {
+  if (field.type === 'boolean') {
+    return <input type="checkbox" name={field.name} checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
+  }
+  if (field.type === 'ref' && field.ref) {
+    return <RefSelect entity={field.ref.name} name={field.name} value={String(value)} onChange={onChange} />
+  }
+  if (field.type === 'text') {
+    return <textarea name={field.name} rows={4} value={String(value)} onChange={(e) => onChange(e.target.value)} />
+  }
+  if (field.type === 'enum') {
+    return (
+      <select name={field.name} value={String(value)} onChange={(e) => onChange(e.target.value)}>
+        <option value="">-- chọn --</option>
+        {field.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    )
+  }
+  const type = field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'
+  return <input type={type} step={field.type === 'number' ? 'any' : undefined} name={field.name} value={String(value)} onChange={(e) => onChange(e.target.value)} />
+}
+
+/**
+ * Form tạo/sửa một entity. Có workflow gắn vào onSubmit thì sau khi kiểm tra hợp lệ, form chuyển dữ liệu
+ * cho workflow thay vì tự gọi API. Mode edit lấy id từ tham số `:id` của route.
+ */
+export default function Form({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const info = findEntity(str(props.entity))
+  const { id } = useParams()
+  const fire = useFire(events)
+  const editing = props.mode === 'edit'
+  const fields = info?.fields ?? []
+  const [values, setValues] = useState<FormValues>(() => initialValues(fields))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!info || !editing || id === undefined) return
+    let cancelled = false
+    info.api
+      .get(id)
+      .then((record) => {
+        if (!cancelled) setValues(initialValues(info.fields, { ...record }))
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setFormError(parseApiError(e).message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [info, editing, id])
+
+  if (!info) return <p style={errorStyle}>Form: entity "{str(props.entity)}" không tồn tại</p>
+  if (editing && id === undefined) return <p style={errorStyle}>Form sửa cần tham số :id trong route của trang</p>
+
+  function setValue(name: string, value: string | boolean) {
+    setValues((current) => ({ ...current, [name]: value }))
+    setErrors((current) => ({ ...current, [name]: '' }))
+    setSaved(false)
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!info) return
+    setFormError('')
+    const clientErrors = validate(info.fields, values)
+    setErrors(clientErrors)
+    if (Object.keys(clientErrors).length > 0) return
+
+    const payload = toPayload(info.fields, values)
+    if (fire('onSubmit', { values: payload })) return
+    setSaving(true)
+    try {
+      if (editing && id !== undefined) await info.api.update(id, payload)
+      else {
+        await info.api.create(payload)
+        setValues(initialValues(info.fields))
+      }
+      setSaved(true)
+    } catch (err) {
+      const parsed = parseApiError(err)
+      setErrors(mapFieldErrors(info.fields, parsed.fields))
+      setFormError(Object.keys(parsed.fields).length > 0 ? '' : parsed.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form style={formStyle} onSubmit={handleSubmit} noValidate>
+      {info.fields.map((field) => (
+        <label key={field.name} style={field.type === 'boolean' ? checkStyle : labelStyle}>
+          <span>
+            {field.name}
+            {field.required ? ' *' : ''}
+          </span>
+          <FieldInput field={field} value={values[field.name] ?? ''} onChange={(v) => setValue(field.name, v)} />
+          {errors[field.name] && <span style={errorStyle}>{errors[field.name]}</span>}
+        </label>
+      ))}
+      {formError && <span role="alert" style={errorStyle}>{formError}</span>}
+      {saved && <span role="status" style={okStyle}>Đã lưu</span>}
+      <div>
+        <button type="submit" disabled={saving}>
+          {saving ? 'Đang lưu...' : str(props.submitText, 'Lưu')}
+        </button>
+      </div>
+    </form>
+  )
+}

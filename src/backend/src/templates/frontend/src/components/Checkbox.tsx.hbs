@@ -1,0 +1,26 @@
+import { useState, type CSSProperties } from 'react'
+import { useFire, usePageState } from '../runtime/PageState'
+import { str, type Props } from '../runtime/props'
+
+const fieldStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }
+
+export default function Checkbox({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const { values, setValue } = usePageState()
+  const fire = useFire(events)
+  const [local, setLocal] = useState(false)
+  const field = str(props.bindField)
+  const checked = field ? Boolean(values[field]) : local
+
+  function change(next: boolean) {
+    if (field) setValue(field, next)
+    else setLocal(next)
+    fire('onChange', { values: field ? { ...values, [field]: next } : values })
+  }
+
+  return (
+    <label style={fieldStyle}>
+      <input type="checkbox" checked={checked} onChange={(e) => change(e.target.checked)} />
+      <span>{str(props.label)}</span>
+    </label>
+  )
+}

@@ -1,0 +1,159 @@
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { deleteErrorMessage, errorMessage } from '../api/errors'
+import type { ListMeta } from '../api/types'
+import { useAuth } from '../auth/AuthContext'
+import { formatValue } from '../lib/fields'
+import { findEntity, type Row } from '../lib/entities'
+import { useFire } from '../runtime/PageState'
+import { list, num, str, type Props } from '../runtime/props'
+
+const wrapStyle: CSSProperties = { display: 'grid', gap: 8 }
+const tableStyle: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 14 }
+const cellStyle: CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #ddd', textAlign: 'left' }
+const headStyle: CSSProperties = { ...cellStyle, cursor: 'pointer', userSelect: 'none' }
+const actionsStyle: CSSProperties = { ...cellStyle, display: 'flex', gap: 8 }
+const pagerStyle: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' }
+const errorStyle: CSSProperties = { color: '#b91c1c' }
+
+/** Bảng dữ liệu của một entity: cột chọn từ `columns`, phân trang, tìm kiếm, sắp xếp và nút Sửa/Xóa theo `actions`. */
+export default function Table({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const info = findEntity(str(props.entity))
+  const navigate = useNavigate()
+  const { can } = useAuth()
+  const fire = useFire(events)
+  const pageSize = Math.max(1, Math.round(num(props.pageSize, 10)))
+  const actions = list(props.actions)
+  const [rows, setRows] = useState<Row[]>([])
+  const [meta, setMeta] = useState<ListMeta>({ page: 1, pageSize, total: 0 })
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    if (!info) return
+    let cancelled = false
+    setLoading(true)
+    info.api
+      .list({ page, pageSize, q: q || undefined, sort: sort || undefined })
+      .then((result) => {
+        if (cancelled) return
+        setRows(result.data)
+        setMeta(result.meta)
+        setError('')
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [info, page, pageSize, q, sort, reloadKey])
+
+  if (!info) return <p style={errorStyle}>Table: entity "{str(props.entity)}" không tồn tại</p>
+  const columns = info.fields.filter((field) => list(props.columns).includes(field.name))
+  if (columns.length === 0) return <p style={errorStyle}>Table: chưa chọn cột</p>
+
+  const canUpdate = actions.includes('edit') && can(info.name, 'update')
+  const canDelete = actions.includes('delete') && can(info.name, 'delete')
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.pageSize))
+
+  function sortKey(field: { name: string; ref?: { idName: string } }): string {
+    return field.ref?.idName ?? field.name
+  }
+
+  function toggleSort(key: string) {
+    setPage(1)
+    setSort((current) => (current === `${key}:asc` ? `${key}:desc` : `${key}:asc`))
+  }
+
+  function sortMark(key: string): string {
+    if (sort === `${key}:asc`) return ' ▲'
+    return sort === `${key}:desc` ? ' ▼' : ''
+  }
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    setPage(1)
+    setQ(search.trim())
+  }
+
+  async function handleDelete(row: Row) {
+    if (!info || !window.confirm('Xóa bản ghi này?')) return
+    try {
+      await info.api.remove(row.id)
+      if (rows.length === 1 && page > 1) setPage(page - 1)
+      else setReloadKey((key) => key + 1)
+    } catch (e) {
+      setError(deleteErrorMessage(e))
+    }
+  }
+
+  return (
+    <div style={wrapStyle}>
+      <form onSubmit={handleSearch}>
+        <input type="search" placeholder="Tìm kiếm" value={search} onChange={(e) => setSearch(e.target.value)} />{' '}
+        <button type="submit">Tìm</button>
+      </form>
+      {error && <p role="alert" style={errorStyle}>{error}</p>}
+      <table style={tableStyle}>
+        <thead>
+          <tr>
+            {columns.map((field) => (
+              <th key={field.name} style={headStyle} onClick={() => toggleSort(sortKey(field))}>
+                {field.name}
+                {sortMark(sortKey(field))}
+              </th>
+            ))}
+            {(canUpdate || canDelete) && <th style={cellStyle} />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} onClick={() => fire('onRowClick', { values: row, params: { id: row.id } })}>
+              {columns.map((field) => (
+                <td key={field.name} style={cellStyle}>
+                  {formatValue(row[field.name], field.type)}
+                </td>
+              ))}
+              {(canUpdate || canDelete) && (
+                <td style={actionsStyle} onClick={(e) => e.stopPropagation()}>
+                  {canUpdate && (
+                    <button type="button" onClick={() => navigate(`${info.path}/${row.id}/edit`)}>
+                      Sửa
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button type="button" onClick={() => void handleDelete(row)}>
+                      Xóa
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!loading && rows.length === 0 && !error && <p>Chưa có dữ liệu.</p>}
+      {loading && <p>Đang tải...</p>}
+      <div style={pagerStyle}>
+        <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          Trước
+        </button>
+        <span>
+          Trang {meta.page} / {totalPages} ({meta.total} bản ghi)
+        </span>
+        <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          Sau
+        </button>
+      </div>
+    </div>
+  )
+}

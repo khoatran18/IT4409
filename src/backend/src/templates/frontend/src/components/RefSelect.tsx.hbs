@@ -1,0 +1,90 @@
+import { useEffect, useState, type CSSProperties } from 'react'
+import { errorMessage } from '../api/errors'
+import { findEntity } from '../lib/entities'
+
+interface Option {
+  id: string
+  label: string
+}
+
+interface RefSelectProps {
+  /** Tên entity đích của quan hệ */
+  entity: string
+  /** Id bản ghi đang chọn, rỗng nếu chưa chọn */
+  value: string
+  onChange: (id: string) => void
+  name?: string
+}
+
+const wrapStyle: CSSProperties = { display: 'grid', gap: 4 }
+const errorStyle: CSSProperties = { color: '#b91c1c', fontSize: 13 }
+const PAGE_SIZE = 100
+
+/** Ô chọn bản ghi liên quan: tải danh sách từ API của entity đích, hiện `displayField` làm nhãn và có ô tìm kiếm. */
+export default function RefSelect({ entity, value, onChange, name }: RefSelectProps) {
+  const info = findEntity(entity)
+  const [options, setOptions] = useState<Option[]>([])
+  const [selected, setSelected] = useState<Option | null>(null)
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQ(search.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    if (!info) return
+    let cancelled = false
+    info.api
+      .list({ page: 1, pageSize: PAGE_SIZE, q: q || undefined })
+      .then((result) => {
+        if (cancelled) return
+        setOptions(result.data.map((row) => ({ id: row.id, label: String(row[info.displayField] ?? row.id) })))
+        setError('')
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(errorMessage(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [info, q])
+
+  // bản ghi đang chọn có thể nằm ngoài kết quả tìm kiếm: tải riêng để vẫn hiện đúng nhãn
+  const listed = options.some((option) => option.id === value)
+  useEffect(() => {
+    if (!info || !value || listed) return
+    let cancelled = false
+    info.api
+      .get(value)
+      .then((row) => {
+        if (!cancelled) setSelected({ id: row.id, label: String(row[info.displayField] ?? row.id) })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [info, value, listed])
+
+  if (!info) return <span style={errorStyle}>Entity "{entity}" không tồn tại</span>
+
+  const extra = value && !listed ? (selected?.id === value ? selected : { id: value, label: value }) : null
+
+  return (
+    <div style={wrapStyle}>
+      <input type="search" placeholder={`Tìm ${entity}`} value={search} onChange={(e) => setSearch(e.target.value)} />
+      <select name={name} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">-- chọn {entity} --</option>
+        {extra && <option value={extra.id}>{extra.label}</option>}
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {error && <span style={errorStyle}>{error}</span>}
+    </div>
+  )
+}

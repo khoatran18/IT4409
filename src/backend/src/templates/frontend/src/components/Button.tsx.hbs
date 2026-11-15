@@ -1,0 +1,21 @@
+import type { CSSProperties } from 'react'
+import { useFire } from '../runtime/PageState'
+import { bool, str, type Props } from '../runtime/props'
+
+const base: CSSProperties = { padding: '6px 14px', borderRadius: 6, border: '1px solid #2563eb', cursor: 'pointer' }
+const primary: CSSProperties = { ...base, background: '#2563eb', color: '#fff' }
+const secondary: CSSProperties = { ...base, background: 'transparent', color: '#2563eb' }
+
+export default function Button({ props, events }: { props: Props; events?: Record<string, string> }) {
+  const fire = useFire(events)
+  return (
+    <button
+      type="button"
+      style={props.variant === 'secondary' ? secondary : primary}
+      disabled={bool(props.disabled)}
+      onClick={() => fire('onClick')}
+    >
+      {str(props.text, 'Button')}
+    </button>
+  )
+}
