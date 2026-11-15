@@ -2,14 +2,14 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { defaultProps, list, missingRequired, register, resolveProps } from '.'
 
 describe('registry', () => {
-  it('đăng ký sẵn các component khớp COMPONENT_REGISTRY của validator', () => {
+  it('đăng ký sẵn 11 component (Grid chưa có trong COMPONENT_REGISTRY của validator)', () => {
     expect(list().map((d) => d.type).sort()).toEqual(
-      ['Button', 'Card', 'Checkbox', 'Container', 'Form', 'Heading', 'Input', 'Select', 'Table', 'Text'],
+      ['Button', 'Card', 'Checkbox', 'Container', 'Form', 'Grid', 'Heading', 'Input', 'Select', 'Table', 'Text'],
     )
   })
 
-  it('chỉ Container và Card chứa được con', () => {
-    expect(list().filter((d) => d.container).map((d) => d.type).sort()).toEqual(['Card', 'Container'])
+  it('chỉ Container, Grid và Card chứa được con', () => {
+    expect(list().filter((d) => d.container).map((d) => d.type).sort()).toEqual(['Card', 'Container', 'Grid'])
   })
 
   it('mọi component có category, label và template', () => {
@@ -26,9 +26,10 @@ describe('registry', () => {
     expect(defaultProps('Form')).toEqual({ mode: 'create', submitText: 'Lưu' })
   })
 
-  it('default khớp validator: Heading, Container', () => {
+  it('default của Heading, Container, Grid', () => {
     expect(defaultProps('Heading')).toEqual({ text: 'Tiêu đề', level: 2 })
-    expect(defaultProps('Container')).toEqual({ direction: 'column', gap: 16 })
+    expect(defaultProps('Container')).toEqual({ direction: 'column', gap: 16, align: 'stretch', wrap: false })
+    expect(defaultProps('Grid')).toEqual({ columns: 2, gap: 16, align: 'stretch' })
   })
 
   it('resolveProps lấy giá trị đã đặt đè lên default', () => {

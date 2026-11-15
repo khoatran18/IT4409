@@ -1,9 +1,11 @@
 export type PropDef =
   | { type: 'string'; default?: string; required?: boolean }
-  | { type: 'number'; default?: number; required?: boolean }
+  | { type: 'number'; default?: number; required?: boolean; min?: number; max?: number }
   | { type: 'boolean'; default?: boolean; required?: boolean }
   | { type: 'enum'; options: string[]; default?: string; required?: boolean }
   | { type: 'entityRef'; default?: string; required?: boolean }
+  /** Đường dẫn của một page trong project hoặc trang entity */
+  | { type: 'route'; default?: string; required?: boolean }
   | { type: 'fieldList'; default?: string[]; required?: boolean }
   /** Danh sách chuỗi; có `choices` thì chọn từ tập cố định, không thì nhập mỗi dòng một giá trị */
   | { type: 'stringList'; choices?: string[]; default?: string[]; required?: boolean }

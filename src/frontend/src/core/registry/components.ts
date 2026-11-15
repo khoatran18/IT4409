@@ -85,10 +85,26 @@ register({
   props: {
     direction: { type: 'enum', options: ['column', 'row'], default: 'column' },
     gap: { type: 'number', default: 16 },
+    align: { type: 'enum', options: ['start', 'center', 'end', 'stretch'], default: 'stretch' },
+    wrap: { type: 'boolean', default: false },
   },
   events: [],
   container: true,
   template: 'src/components/Container.tsx.hbs',
+})
+
+register({
+  type: 'Grid',
+  label: 'Grid',
+  category: 'Layout',
+  props: {
+    columns: { type: 'number', default: 2, min: 1, max: 4 },
+    gap: { type: 'number', default: 16 },
+    align: { type: 'enum', options: ['start', 'center', 'end', 'stretch'], default: 'stretch' },
+  },
+  events: [],
+  container: true,
+  template: 'src/components/Grid.tsx.hbs',
 })
 
 register({
