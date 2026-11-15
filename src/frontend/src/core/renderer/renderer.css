@@ -56,6 +56,10 @@
   display: flex;
 }
 
+.rp-grid {
+  display: grid;
+}
+
 .rp-card {
   display: grid;
   gap: 12px;
@@ -161,4 +165,9 @@
   background: var(--text-h);
   color: var(--bg);
   font-size: 14px;
+}
+
+.rp-toast-error {
+  background: var(--danger);
+  color: #fff;
 }

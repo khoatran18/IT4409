@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { inventorySample, type ComponentNode, type Page, type ProjectSchema } from '@codeflow/schema'
+import { inventorySample, shopSample, type ComponentNode, type Page, type ProjectSchema } from '@codeflow/schema'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -265,11 +265,11 @@ describe('menu, role và điều hướng', () => {
     expect(root.querySelector('.rp-nav-active')?.textContent).toBe('Trang chủ')
   })
 
-  it('workflow ngoài navigate hoặc không tồn tại thì báo chưa hỗ trợ', async () => {
-    const callApi = { id: 'go-admin', nodes: [{ id: 'n1', type: 'callApi' as const, config: {} }], edges: [] }
-    const root = await mount(multi([callApi]))
+  it('workflow không tồn tại hoặc lỗi giữa chừng thì báo bằng toast lỗi', async () => {
+    const broken = { id: 'go-admin', nodes: [{ id: 'n1', type: 'callApi' as const, config: { entity: 'Nope' } }], edges: [] }
+    const root = await mount(multi([broken]))
     await click(root.querySelector('.rp-button'))
-    expect(root.querySelector('.rp-toast')?.textContent).toBe('Workflow chưa hỗ trợ trong preview')
+    expect(root.querySelector('.rp-toast-error')?.textContent).toContain('Nope')
 
     const missing = await mount(multi([]))
     await click(missing.querySelector('.rp-button'))
@@ -279,5 +279,130 @@ describe('menu, role và điều hướng', () => {
   it('project không có page nào vẫn vẽ được', async () => {
     const root = await mount({ ...multi(), pages: [] })
     expect(root.textContent).toContain('chưa có trang nào')
+  })
+})
+
+describe('bố cục Grid và Container', () => {
+  it('Grid chia cột theo columns (1-4), áp gap và align', async () => {
+    const child = (id: string) => node(id, 'Text', { content: id })
+    const root = await mount(project([node('g', 'Grid', { columns: 3, gap: 8, align: 'center' }, { children: [child('a'), child('b'), child('c')] })]))
+    const grid = root.querySelector<HTMLElement>('.rp-grid')!
+    expect(grid.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))')
+    expect(grid.style.gap).toBe('8px')
+    expect(grid.style.alignItems).toBe('center')
+    expect(grid.textContent).toBe('abc')
+
+    const clamped = await mount(project([node('g', 'Grid', { columns: 9 })]))
+    expect(clamped.querySelector<HTMLElement>('.rp-grid')!.style.gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))')
+    const byDefault = await mount(project([node('g', 'Grid')]))
+    expect(byDefault.querySelector<HTMLElement>('.rp-grid')!.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))')
+  })
+
+  it('Container áp align và wrap', async () => {
+    const root = await mount(project([node('c', 'Container', { direction: 'row', align: 'end', wrap: true })]))
+    const el = root.querySelector<HTMLElement>('.rp-container')!
+    expect(el.style.alignItems).toBe('flex-end')
+    expect(el.style.flexWrap).toBe('wrap')
+  })
+})
+
+describe('workflow trong preview', () => {
+  const wf = (nodes: ProjectSchema['workflows'][number]['nodes'], edges: ProjectSchema['workflows'][number]['edges'] = []) => [{ id: 'wf1', nodes, edges }]
+  const button = node('b', 'Button', { text: 'Chạy' }, { events: { onClick: 'wf1' } })
+
+  it('Input có bindField lưu giá trị, condition rẽ nhánh theo giá trị đó và showMessage hiện toast', async () => {
+    const nodes = [
+      { id: 'n1', type: 'condition' as const, config: { source: 'values', field: 'name', operator: 'eq', value: 'An' } },
+      { id: 'n2', type: 'showMessage' as const, config: { kind: 'success', text: 'Đúng tên' } },
+      { id: 'n3', type: 'showMessage' as const, config: { kind: 'error', text: 'Sai tên' } },
+    ]
+    const edges = [
+      { from: 'n1', to: 'n2', branch: 'true' as const },
+      { from: 'n1', to: 'n3', branch: 'false' as const },
+    ]
+    const root = await mount(project([node('i', 'Input', { bindField: 'name' }), button], { workflows: wf(nodes, edges) }))
+    await click(root.querySelector('.rp-button'))
+    expect(root.querySelector('.rp-toast-error')?.textContent).toBe('Sai tên')
+
+    await act(async () => setValue(root.querySelector<HTMLInputElement>('input')!, 'An'))
+    expect(root.querySelector<HTMLInputElement>('input')!.value).toBe('An')
+    await click(root.querySelector('.rp-button'))
+    expect(root.querySelector('.rp-toast-success')?.textContent).toBe('Đúng tên')
+  })
+
+  it('callApi giả lập trên dữ liệu mẫu rồi navigate sang page khác', async () => {
+    const nodes = [
+      { id: 'n1', type: 'callApi' as const, config: { entity: 'Product', op: 'create' } },
+      { id: 'n2', type: 'navigate' as const, config: { to: '/other' } },
+    ]
+    const other: Page = { id: 'p2', route: '/other', title: 'Khác', requireRole: [], components: [node('h', 'Heading', { text: 'Trang khác' })] }
+    const base = project([button], { workflows: wf(nodes, [{ from: 'n1', to: 'n2' }]) })
+    const root = await mount({ ...base, pages: [...base.pages, other] })
+    await click(root.querySelector('.rp-button'))
+    expect(root.querySelector('h2')?.textContent).toBe('Trang khác')
+  })
+
+  it('đổi trang thì các ô bind bắt đầu lại từ rỗng', async () => {
+    const other: Page = { id: 'p2', route: '/other', title: 'Khác', requireRole: [], components: [] }
+    const base = project([node('i', 'Input', { bindField: 'name' })])
+    const root = await mount({ ...base, pages: [...base.pages, other] })
+    await act(async () => setValue(root.querySelector<HTMLInputElement>('input')!, 'An'))
+    await click([...root.querySelectorAll('.rp-nav')].find((b) => b.textContent === 'Khác'))
+    await click([...root.querySelectorAll('.rp-nav')].find((b) => b.textContent === 'Trang chủ'))
+    expect(root.querySelector<HTMLInputElement>('input')!.value).toBe('')
+  })
+
+  it('Checkbox bind và onChange chạy workflow', async () => {
+    const nodes = [{ id: 'n1', type: 'showMessage' as const, config: { kind: 'info', text: 'Đã đổi' } }]
+    const root = await mount(project([node('k', 'Checkbox', { bindField: 'ok' }, { events: { onChange: 'wf1' } })], { workflows: wf(nodes) }))
+    await click(root.querySelector('input[type="checkbox"]'))
+    expect(root.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true)
+    expect(root.querySelector('.rp-toast-info')?.textContent).toBe('Đã đổi')
+  })
+
+  it('Form có workflow onSubmit chạy workflow thay cho lưu giả lập, với giá trị form', async () => {
+    const nodes = [
+      { id: 'n1', type: 'callApi' as const, config: { entity: 'Product', op: 'create' } },
+      { id: 'n2', type: 'showMessage' as const, config: { kind: 'success', text: 'Đã tạo qua workflow' } },
+    ]
+    const form = node('f', 'Form', { entity: 'Product' }, { events: { onSubmit: 'wf1' } })
+    const root = await mount(project([form], { workflows: wf(nodes, [{ from: 'n1', to: 'n2' }]) }))
+    const inputs = root.querySelectorAll<HTMLInputElement>('.rp-form input')
+    await act(async () => setValue(inputs[0], 'Áo'))
+    await act(async () => setValue(inputs[1], 'SKU-1'))
+    await act(async () => setValue(root.querySelector<HTMLInputElement>('input[type="number"]')!, '150'))
+    await act(async () => root.querySelector('form')!.requestSubmit())
+    expect(root.querySelector('.rp-toast')?.textContent).toBe('Đã tạo qua workflow')
+  })
+
+  it('Table onRowClick truyền id dòng cho callApi idSource = param', async () => {
+    const nodes = [
+      { id: 'n1', type: 'callApi' as const, config: { entity: 'Product', op: 'get', idSource: 'param' } },
+      { id: 'n2', type: 'condition' as const, config: { source: 'result', field: 'name', operator: 'eq', value: 'name 2' } },
+      { id: 'n3', type: 'showMessage' as const, config: { kind: 'success', text: 'Dòng 2' } },
+    ]
+    const edges = [{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3', branch: 'true' as const }]
+    const table = node('t', 'Table', { entity: 'Product', columns: ['name'], actions: [] }, { events: { onRowClick: 'wf1' } })
+    const root = await mount(project([table], { workflows: wf(nodes, edges) }))
+    await click(root.querySelectorAll('tbody tr')[1])
+    expect(root.querySelector('.rp-toast')?.textContent).toBe('Dòng 2')
+  })
+})
+
+describe('quan hệ ref (shopSample)', () => {
+  const shop = (components: ComponentNode[]): ProjectSchema => ({ ...structuredClone(shopSample), pages: [{ id: 'p1', route: '/', title: 'Home', requireRole: [], components }] })
+
+  it('Table hiện nhãn của bản ghi liên quan ở cột ref', async () => {
+    const root = await mount(shop([node('t', 'Table', { entity: 'Order', columns: ['customer', 'status'] })]))
+    expect(text(root, 'thead th').slice(0, 2)).toEqual(['customer', 'status'])
+    expect(root.querySelector('tbody tr td')?.textContent).toBe('Customer 1')
+  })
+
+  it('Form vẽ ô chọn bản ghi liên quan với nhãn mẫu và bắt buộc chọn nếu required', async () => {
+    const root = await mount(shop([node('f', 'Form', { entity: 'Order' })]))
+    const select = [...root.querySelectorAll<HTMLSelectElement>('.rp-form select')].find((s) => s.textContent?.includes('Customer 1'))!
+    expect([...select.options].map((o) => o.textContent)).toEqual(['-- chọn Customer --', 'Customer 1', 'Customer 2', 'Customer 3', 'Customer 4', 'Customer 5'])
+    await act(async () => root.querySelector('form')!.requestSubmit())
+    expect(text(root, '.rp-error').length).toBeGreaterThan(0)
   })
 })

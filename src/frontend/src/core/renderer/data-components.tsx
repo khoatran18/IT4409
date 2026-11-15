@@ -3,7 +3,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { resolveProps } from '../registry'
 import { usePreview } from './context'
 import type { RendererProps } from './registry'
-import { formatCell, sampleRows, type SampleRow } from './sample-data'
+import { formatCell, sampleRows, sampleValue, type SampleRow } from './sample-data'
 
 function useEntity(name: unknown): Entity | undefined {
   const { project } = usePreview()
@@ -62,7 +62,7 @@ export function DataTable({ node }: RendererProps) {
         </thead>
         <tbody>
           {visible.map((row) => (
-            <tr key={row.id} onClick={() => fire(node, 'onRowClick')}>
+            <tr key={row.id} onClick={() => void fire(node, 'onRowClick', { values: row, params: { id: row.id } })}>
               {columns.map((c) => <td key={c}>{formatCell(row[c])}</td>)}
               {actions.length > 0 && (
                 <td className="rp-actions">
@@ -119,7 +119,20 @@ function validateField(field: Field, value: string | boolean | undefined): strin
   return undefined
 }
 
+/** Nhãn mẫu của bản ghi liên quan, trùng với giá trị `ref` mà `sampleValue` sinh ra trong Table */
+function refOptions(field: Field): string[] {
+  return Array.from({ length: 5 }, (_, index) => String(sampleValue(field, index)))
+}
+
 function FieldInput({ field, value, onChange }: { field: Field; value: string | boolean; onChange: (v: string | boolean) => void }) {
+  if (field.type === 'ref') {
+    return (
+      <select value={String(value)} onChange={(e) => onChange(e.target.value)}>
+        <option value="">-- chọn {field.entity ?? 'bản ghi'} --</option>
+        {refOptions(field).map((o) => <option key={o}>{o}</option>)}
+      </select>
+    )
+  }
   if (field.type === 'boolean') {
     return <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
   }
@@ -158,8 +171,8 @@ export function DataForm({ node }: RendererProps) {
     }
     setErrors(next)
     if (Object.keys(next).length > 0) return
-    notify(`Đã lưu ${entity.name} (giả lập)`)
-    fire(node, 'onSubmit')
+    if (node.events?.onSubmit) void fire(node, 'onSubmit', { values })
+    else notify(`Đã lưu ${entity.name} (giả lập)`, 'success')
   }
 
   return (

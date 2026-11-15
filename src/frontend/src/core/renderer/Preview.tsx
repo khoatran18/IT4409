@@ -1,8 +1,10 @@
 import type { ComponentNode, ProjectSchema } from '@codeflow/schema'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { PreviewContext, type PreviewContextValue } from './context'
-import { isVisibleTo, resolveEvent } from './events'
+import { PreviewContext, type FireOptions, type PreviewContextValue } from './context'
+import { isVisibleTo } from './events'
 import { RenderChildren } from './RenderNode'
+import { runWorkflow, type MessageKind } from './run-workflow'
+import { simulateApi } from './sample-api'
 import './components'
 import './renderer.css'
 
@@ -16,7 +18,8 @@ interface PreviewProps {
 export function Preview({ project, initialPageId }: PreviewProps) {
   const [role, setRole] = useState(project.roles[0] ?? 'admin')
   const [pageId, setPageId] = useState(initialPageId)
-  const [message, setMessage] = useState<string>()
+  const [message, setMessage] = useState<{ kind: MessageKind; text: string }>()
+  const [values, setValues] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
     if (!message) return
@@ -28,21 +31,39 @@ export function Preview({ project, initialPageId }: PreviewProps) {
   const page = project.pages.find((p) => p.id === pageId) ?? menu[0]
   const allowed = page !== undefined && isVisibleTo(page.requireRole, role)
 
+  const setValue = useCallback((name: string, value: unknown) => setValues((all) => ({ ...all, [name]: value })), [])
+  // ô nhập thuộc về trang đang xem: đổi trang thì bắt đầu lại từ rỗng
+  const goTo = useCallback((id: string) => {
+    setPageId(id)
+    setValues({})
+  }, [])
+  const notify = useCallback((text: string, kind: MessageKind = 'info') => setMessage({ kind, text }), [])
+
   const fire = useCallback(
-    (node: ComponentNode, event: string) => {
-      const action = resolveEvent(project, node.events?.[event])
-      if (!action) return
-      if (action.kind === 'unsupported') return setMessage(action.message)
-      const target = project.pages.find((p) => p.route === action.to)
-      if (target) setPageId(target.id)
-      else setMessage(`Không có trang "${action.to}" trong preview`)
+    async (node: ComponentNode, event: string, options: FireOptions = {}) => {
+      const workflowId = node.events?.[event]
+      if (!workflowId) return
+      const workflow = project.workflows.find((w) => w.id === workflowId)
+      if (!workflow) return notify(`Workflow "${workflowId}" không tồn tại`, 'error')
+      const run = await runWorkflow(workflow, {
+        values: options.values ?? values,
+        params: options.params,
+        callApi: (call) => simulateApi(project, call),
+        message: (kind, text) => notify(text, kind),
+        navigate: (to) => {
+          const target = project.pages.find((p) => p.route === to)
+          if (target) goTo(target.id)
+          else notify(`Không có trang "${to}" trong preview`)
+        },
+      })
+      if (!run.ok && run.error) notify(run.error, 'error')
     },
-    [project],
+    [project, notify, values, goTo],
   )
 
   const context = useMemo<PreviewContextValue>(
-    () => ({ project, role, notify: setMessage, fire }),
-    [project, role, fire],
+    () => ({ project, role, values, setValue, notify, fire }),
+    [project, role, values, setValue, notify, fire],
   )
 
   return (
@@ -61,7 +82,7 @@ export function Preview({ project, initialPageId }: PreviewProps) {
               key={p.id}
               type="button"
               className={p.id === page?.id ? 'rp-nav rp-nav-active' : 'rp-nav'}
-              onClick={() => setPageId(p.id)}
+              onClick={() => goTo(p.id)}
             >
               {p.title}
             </button>
@@ -80,7 +101,7 @@ export function Preview({ project, initialPageId }: PreviewProps) {
               <RenderChildren nodes={page.components} />
             </div>
           )}
-          {message && <div className="rp-toast" role="status">{message}</div>}
+          {message && <div className={`rp-toast rp-toast-${message.kind}`} role="status">{message.text}</div>}
         </main>
       </div>
     </PreviewContext.Provider>

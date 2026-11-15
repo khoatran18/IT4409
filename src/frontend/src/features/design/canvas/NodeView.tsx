@@ -1,7 +1,8 @@
-import type { ComponentNode } from '@codeflow/schema'
+import type { ComponentNode, Entity } from '@codeflow/schema'
 import { useDndContext, useDraggable } from '@dnd-kit/core'
 import { Fragment, useContext, type CSSProperties } from 'react'
 import { get, missingRequired, resolveProps } from '../../../core/registry'
+import { sampleValue } from '../../../core/renderer'
 import { useSchemaStore } from '../../../core/schema-store'
 import { DragLockContext } from './drag'
 import { DropZone, InsertSlot } from './DropZone'
@@ -12,6 +13,7 @@ export interface NodeDragData {
 }
 
 const textSize = { sm: 12, md: 16, lg: 24 } as const
+const alignItems = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' } as const
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
@@ -31,6 +33,28 @@ function ChildList({ node, horizontal }: { node: ComponentNode; horizontal: bool
       {children.length === 0 && <span className="hint">Thả component vào đây</span>}
     </>
   )
+}
+
+/** Mỗi con của Grid là một ô; khe chèn nằm sát mép trái ô, riêng khe cuối nằm sau ô cuối. */
+function GridCells({ node }: { node: ComponentNode }) {
+  const children = node.children ?? []
+  return (
+    <>
+      {children.map((child, i) => (
+        <div key={child.id} className="pv-grid-cell">
+          <InsertSlot parentId={node.id} index={i} horizontal />
+          <NodeView node={child} />
+          {i === children.length - 1 && <InsertSlot parentId={node.id} index={children.length} horizontal />}
+        </div>
+      ))}
+      {children.length === 0 && <span className="hint">Thả component vào các ô</span>}
+    </>
+  )
+}
+
+function sampleCell(entity: Entity | undefined, column: string, row: number): string {
+  const field = entity?.fields.find((f) => f.name === column)
+  return field ? String(sampleValue(field, row)) : '…'
 }
 
 function Preview({ node }: { node: ComponentNode }) {
@@ -96,7 +120,7 @@ function Preview({ node }: { node: ComponentNode }) {
           <tbody>
             {[0, 1].map((row) => (
               <tr key={row}>
-                {columns.map((c) => <td key={c}>…</td>)}
+                {columns.map((c) => <td key={c}>{sampleCell(entity, c, row)}</td>)}
                 {actions.length > 0 && <td>{actions.join(' | ')}</td>}
               </tr>
             ))}
@@ -111,7 +135,13 @@ function Preview({ node }: { node: ComponentNode }) {
             entity.fields.map((f) => (
               <label key={f.name} className="pv-field">
                 <span>{f.name}</span>
-                <input disabled />
+                {f.type === 'ref' ? (
+                  <select disabled>
+                    <option>{String(sampleValue(f, 0))}</option>
+                  </select>
+                ) : (
+                  <input disabled />
+                )}
               </label>
             ))
           ) : (
@@ -125,12 +155,34 @@ function Preview({ node }: { node: ComponentNode }) {
         <DropZone parentId={node.id} className="pv-container">
           <div
             className="pv-container-body"
-            style={{ flexDirection: props.direction === 'row' ? 'row' : 'column', gap: Number(props.gap ?? 0) }}
+            style={{
+              flexDirection: props.direction === 'row' ? 'row' : 'column',
+              gap: Number(props.gap ?? 0),
+              alignItems: alignItems[props.align as keyof typeof alignItems] ?? 'stretch',
+              flexWrap: props.wrap ? 'wrap' : 'nowrap',
+            }}
           >
             <ChildList node={node} horizontal={props.direction === 'row'} />
           </div>
         </DropZone>
       )
+    case 'Grid': {
+      const columns = Math.min(Math.max(Math.round(Number(props.columns)) || 2, 1), 4)
+      return (
+        <DropZone parentId={node.id} className="pv-container">
+          <div
+            className="pv-grid"
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              gap: Number(props.gap ?? 0),
+              alignItems: alignItems[props.align as keyof typeof alignItems] ?? 'stretch',
+            }}
+          >
+            <GridCells node={node} />
+          </div>
+        </DropZone>
+      )
+    }
     case 'Card':
       return (
         <DropZone parentId={node.id} className="pv-container pv-card">
