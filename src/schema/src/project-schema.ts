@@ -1,22 +1,31 @@
 import { z } from 'zod';
 
 export const DATABASES = ['postgres', 'mysql'] as const;
-export const FIELD_TYPES = ['string', 'text', 'number', 'boolean', 'date', 'enum'] as const;
+export const FIELD_TYPES = ['string', 'text', 'number', 'boolean', 'date', 'enum', 'ref'] as const;
 
 const identifier = z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Chỉ gồm chữ, số, dấu gạch dưới; bắt đầu bằng chữ');
 
-export const fieldSchema = z.object({
-  name: identifier,
-  type: z.enum(FIELD_TYPES),
-  required: z.boolean().optional(),
-  unique: z.boolean().optional(),
-  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
-  options: z.array(z.string()).optional(),
-});
+export const fieldSchema = z
+  .object({
+    name: identifier,
+    type: z.enum(FIELD_TYPES),
+    required: z.boolean().optional(),
+    unique: z.boolean().optional(),
+    default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    options: z.array(z.string()).optional(),
+    /** Chỉ dùng khi type = 'ref': tên entity đích (quan hệ nhiều-một) */
+    entity: identifier.optional(),
+  })
+  .refine((f) => f.type !== 'ref' || f.entity !== undefined, {
+    message: 'Field ref cần khai báo entity đích',
+    path: ['entity'],
+  });
 
 export const entitySchema = z.object({
   name: identifier,
   ownerOnly: z.boolean().default(false),
+  /** Field dùng làm nhãn khi entity này được tham chiếu; mặc định field string đầu tiên */
+  displayField: z.string().optional(),
   fields: z.array(fieldSchema),
 });
 

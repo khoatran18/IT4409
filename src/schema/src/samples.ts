@@ -116,3 +116,37 @@ export const inventorySample: ProjectSchema = {
     },
   ],
 };
+
+/** Schema mẫu 3: có quan hệ nhiều-một (Order.customer → Customer). */
+export const shopSample: ProjectSchema = {
+  meta: { name: 'shop-admin', version: 1, database: 'postgres' },
+  entities: [
+    {
+      name: 'Customer',
+      ownerOnly: false,
+      displayField: 'name',
+      fields: [
+        { name: 'name', type: 'string', required: true },
+        { name: 'email', type: 'string', unique: true },
+      ],
+    },
+    {
+      name: 'Order',
+      ownerOnly: false,
+      fields: [
+        { name: 'code', type: 'string', required: true, unique: true },
+        { name: 'customer', type: 'ref', entity: 'Customer', required: true },
+        { name: 'total', type: 'number', required: true },
+        { name: 'status', type: 'enum', options: ['new', 'paid', 'shipped'], default: 'new' },
+      ],
+    },
+  ],
+  roles: ['admin', 'user'],
+  auth: { allowSelfRegister: false },
+  permissions: {
+    Customer: { admin: 'CRUD', user: 'R' },
+    Order: { admin: 'CRUD', user: 'R' },
+  },
+  pages: [],
+  workflows: [],
+};

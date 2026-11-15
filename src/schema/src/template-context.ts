@@ -25,11 +25,22 @@ export interface FieldContext {
   unique: boolean;
   options: string[];
   default?: string | number | boolean;
+  /** Chỉ có khi type = 'ref' */
+  ref?: RefContext;
+}
+
+/** Entity đích của một field ref; `idName` là cột khóa ngoại (vd customerId) */
+export interface RefContext extends NameForms {
+  name: string;
+  displayField: string;
+  idName: string;
 }
 
 export interface EntityContext extends NameForms {
   name: string;
   ownerOnly: boolean;
+  /** Field làm nhãn khi được tham chiếu (đã điền mặc định) */
+  displayField: string;
   fields: FieldContext[];
   /** Quyền theo role, ví dụ { admin: 'CRUD', user: 'R' } */
   permissions: Record<string, string>;
