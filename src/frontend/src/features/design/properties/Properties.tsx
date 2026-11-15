@@ -1,101 +1,7 @@
-import type { ComponentNode, Entity } from '@codeflow/schema'
+import type { ComponentNode, ProjectSchema } from '@codeflow/schema'
 import { get, missingRequired, type ComponentDef, type PropDef } from '../../../core/registry'
-import { findComponent, useSchemaStore } from '../../../core/schema-store'
-
-interface FieldProps {
-  name: string
-  def: PropDef
-  value: unknown
-  entities: Entity[]
-  /** Entity đang chọn ở prop entityRef của cùng component, dùng cho fieldList */
-  entity: Entity | undefined
-  invalid: boolean
-  onChange: (value: unknown) => void
-}
-
-function listOf(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String) : []
-}
-
-function CheckList({ choices, value, onChange }: { choices: string[]; value: string[]; onChange: (v: string[]) => void }) {
-  return (
-    <div className="prop-checks">
-      {choices.map((choice) => (
-        <label key={choice}>
-          <input
-            type="checkbox"
-            checked={value.includes(choice)}
-            onChange={(e) => onChange(e.target.checked ? [...value, choice] : value.filter((v) => v !== choice))}
-          />
-          {choice}
-        </label>
-      ))}
-    </div>
-  )
-}
-
-function Control({ name, def, value, entities, entity, onChange }: FieldProps) {
-  switch (def.type) {
-    case 'string':
-      return (
-        <input
-          id={`prop-${name}`}
-          type="text"
-          value={typeof value === 'string' ? value : ''}
-          placeholder={def.default ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )
-    case 'number':
-      return (
-        <input
-          id={`prop-${name}`}
-          type="number"
-          value={typeof value === 'number' ? value : ''}
-          placeholder={def.default === undefined ? '' : String(def.default)}
-          onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-        />
-      )
-    case 'boolean':
-      return (
-        <input id={`prop-${name}`} type="checkbox" checked={Boolean(value ?? def.default)} onChange={(e) => onChange(e.target.checked)} />
-      )
-    case 'enum':
-      return (
-        <select id={`prop-${name}`} value={String(value ?? def.default ?? '')} onChange={(e) => onChange(e.target.value)}>
-          {def.default === undefined && <option value="">-- chọn --</option>}
-          {def.options.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      )
-    case 'entityRef':
-      return (
-        <select id={`prop-${name}`} value={String(value ?? '')} onChange={(e) => onChange(e.target.value || undefined)}>
-          <option value="">-- chọn entity --</option>
-          {entities.map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
-        </select>
-      )
-    case 'fieldList':
-      return entity ? (
-        <CheckList choices={entity.fields.map((f) => f.name)} value={listOf(value)} onChange={onChange} />
-      ) : (
-        <span className="hint">Chọn entity trước</span>
-      )
-    case 'stringList': {
-      const current = listOf(value ?? def.default)
-      return def.choices ? (
-        <CheckList choices={def.choices} value={current} onChange={onChange} />
-      ) : (
-        <textarea
-          id={`prop-${name}`}
-          rows={3}
-          placeholder="Mỗi dòng một giá trị"
-          value={listOf(value).join('\n')}
-          onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value.split('\n'))}
-        />
-      )
-    }
-  }
-}
+import { addWorkflow, findComponent, setEvent, useSchemaStore } from '../../../core/schema-store'
+import { PropControl, type FieldProps } from './PropControl'
 
 function PropField(props: FieldProps) {
   const { name, def, value, invalid, onChange } = props
@@ -107,7 +13,7 @@ function PropField(props: FieldProps) {
         {name}
         {def.required && <span className="prop-required"> *</span>}
       </label>
-      <Control {...props} />
+      <PropControl {...props} />
       {invalid && <span className="prop-error">bắt buộc</span>}
       {modified && (
         <button type="button" className="prop-reset" onClick={reset}>
@@ -152,7 +58,40 @@ function PropsForm({ node, def }: { node: ComponentNode; def: ComponentDef }) {
   ))
 }
 
-export function Properties() {
+function EventsForm({ node, def, onOpenWorkflow }: { node: ComponentNode; def: ComponentDef; onOpenWorkflow?: (id: string) => void }) {
+  const workflows = useSchemaStore((s) => s.project.workflows)
+  const update = (fn: (project: ProjectSchema) => ProjectSchema) => useSchemaStore.setState((s) => ({ project: fn(s.project) }))
+
+  function createFor(event: string) {
+    const created = addWorkflow(useSchemaStore.getState().project)
+    useSchemaStore.setState({ project: setEvent(created.project, node.id, event, created.id) })
+    if (created.id) onOpenWorkflow?.(created.id)
+  }
+
+  return def.events.map((event) => {
+    const current = node.events?.[event] ?? ''
+    return (
+      <div className="prop" key={`${node.id}-${event}`}>
+        <label htmlFor={`event-${event}`}>Workflow cho {event}</label>
+        <select
+          id={`event-${event}`}
+          value={current}
+          onChange={(e) => update((project) => setEvent(project, node.id, event, e.target.value || undefined))}
+        >
+          <option value="">-- không --</option>
+          {current && !workflows.some((w) => w.id === current) && <option value={current}>{current} (không tồn tại)</option>}
+          {workflows.map((w) => <option key={w.id} value={w.id}>{w.id}</option>)}
+        </select>
+        <div className="prop-event-actions">
+          <button type="button" onClick={() => createFor(event)}>Tạo workflow mới</button>
+          {current && onOpenWorkflow && <button type="button" onClick={() => onOpenWorkflow(current)}>Mở workflow</button>}
+        </div>
+      </div>
+    )
+  })
+}
+
+export function Properties({ onOpenWorkflow }: { onOpenWorkflow?: (id: string) => void }) {
   const node = useSchemaStore((s) => (s.selectedId ? findComponent(s.project, s.selectedId) : undefined))
   const remove = useSchemaStore((s) => s.remove)
   const def = node && get(node.type)
@@ -166,6 +105,7 @@ export function Properties() {
             {def.label} <span className="hint">({node.id})</span>
           </p>
           <PropsForm node={node} def={def} />
+          <EventsForm node={node} def={def} onOpenWorkflow={onOpenWorkflow} />
           <button type="button" className="prop-delete" onClick={() => remove(node.id)}>
             Xóa component
           </button>

@@ -1,1 +1,1 @@
-export { FlowSpike } from './FlowSpike'
+export { WorkflowEditor } from './WorkflowEditor'

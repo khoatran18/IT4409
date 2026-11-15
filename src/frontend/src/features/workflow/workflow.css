@@ -1,0 +1,124 @@
+.wf-editor {
+  display: grid;
+  grid-template-columns: 240px 1fr 300px;
+  flex: 1;
+  min-height: 0;
+  text-align: left;
+}
+
+.wf-side,
+.wf-main {
+  min-width: 0;
+}
+
+.wf-main {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: var(--code-bg);
+}
+
+.wf-flow {
+  height: 520px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.wf-list,
+.wf-palette {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.wf-item {
+  flex: 1;
+  text-align: left;
+}
+
+.wf-item-current {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.wf-palette button {
+  width: 100%;
+  text-align: left;
+}
+
+.wf-node {
+  position: relative;
+  min-width: 170px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 13px;
+}
+
+.wf-node-selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.wf-node-invalid {
+  border-color: var(--danger);
+}
+
+.wf-node-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.wf-node-order {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 11px;
+}
+
+.wf-node-summary {
+  margin-top: 2px;
+  opacity: 0.8;
+  word-break: break-word;
+}
+
+.wf-branch {
+  position: absolute;
+  right: 14px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.wf-branch-true {
+  top: 18%;
+}
+
+.wf-branch-false {
+  top: 64%;
+}
+
+.wf-notice,
+.wf-issues li {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.wf-ok {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.wf-issues ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}

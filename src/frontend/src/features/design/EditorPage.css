@@ -268,6 +268,22 @@
   display: flex;
 }
 
+.pv-grid {
+  display: grid;
+}
+
+.pv-grid-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  border: 1px dotted var(--border);
+}
+
+.pv-grid-cell > .node {
+  flex: 1;
+  min-width: 0;
+}
+
 .pv-button {
   padding: 6px 14px;
   border-radius: 6px;
@@ -279,4 +295,9 @@
 .pv-button.pv-secondary {
   background: transparent;
   color: var(--accent);
+}
+
+.prop-event-actions {
+  display: flex;
+  gap: 8px;
 }

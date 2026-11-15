@@ -2,11 +2,19 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { schoolAdminSample } from '@codeflow/schema'
+import { schoolAdminSample, shopSample } from '@codeflow/schema'
 import { initialProject, useSchemaStore } from '../../core/schema-store'
 import { EditorPage } from './EditorPage'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+// React Flow cần các API đo kích thước mà jsdom không có
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+;(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub
 
 const mounted: Root[] = []
 
@@ -39,7 +47,7 @@ describe('EditorPage (render trong jsdom, chưa kiểm thử kéo thả bằng t
   it('palette liệt kê component từ registry, nhóm theo category', async () => {
     const root = await renderEditor()
     const items = [...root.querySelectorAll('.palette-item')].map((el) => el.textContent)
-    expect(items.sort()).toEqual(['Button', 'Card', 'Checkbox', 'Container', 'Form', 'Heading', 'Input', 'Select', 'Table', 'Text'])
+    expect(items.sort()).toEqual(['Button', 'Card', 'Checkbox', 'Container', 'Form', 'Grid', 'Heading', 'Input', 'Select', 'Table', 'Text'])
     expect([...root.querySelectorAll('.palette-group')].map((el) => el.textContent)).toEqual(['Layout', 'Basic', 'Data'])
   })
 
@@ -218,6 +226,94 @@ describe('EditorPage (render trong jsdom, chưa kiểm thử kéo thả bằng t
       await act(async () => tab('Thiết kế').click())
       expect(root.querySelector('.rp-app')).toBeNull()
       expect(root.querySelector('.palette-item')).not.toBeNull()
+    })
+  })
+
+  describe('Grid và quan hệ', () => {
+    it('Grid nhận nhiều component, mỗi con một ô, columns lấy từ props', async () => {
+      const root = await renderEditor()
+      act(() => {
+        const { add, setProps } = useSchemaStore.getState()
+        add('p1', null, 'Grid')
+        add('p1', 'c1', 'Text')
+        add('p1', 'c1', 'Button')
+        setProps('c1', { columns: 3 })
+      })
+      expect(root.querySelectorAll('.pv-grid > .pv-grid-cell')).toHaveLength(2)
+      expect(root.querySelector<HTMLElement>('.pv-grid')!.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))')
+      expect(useSchemaStore.getState().project.pages[0].components[0].children!.map((c) => c.type)).toEqual(['Text', 'Button'])
+    })
+
+    it('Form và Table trong canvas hiện ô chọn / nhãn mẫu cho field ref', async () => {
+      act(() => {
+        useSchemaStore.getState().load({ ...structuredClone(shopSample), pages: initialProject().pages })
+        const { add, setProps } = useSchemaStore.getState()
+        add('p1', null, 'Form')
+        setProps('c1', { entity: 'Order' })
+        add('p1', null, 'Table')
+        setProps('c2', { entity: 'Order', columns: ['customer'] })
+      })
+      const root = await renderEditor()
+      expect(root.querySelector('.pv-form select option')?.textContent).toBe('Customer 1')
+      expect(root.querySelector('.pv-table tbody td')?.textContent).toBe('Customer 1')
+    })
+  })
+
+  describe('workflow', () => {
+    const project = () => useSchemaStore.getState().project
+    const tab = (root: HTMLElement, label: string) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)!
+
+    it('Button có select "Workflow cho onClick"; tạo mới gắn id vào events và mở chế độ Workflow', async () => {
+      const root = await renderEditor()
+      act(() => {
+        useSchemaStore.getState().add('p1', null, 'Button')
+      })
+      const label = [...root.querySelectorAll('.panel label')].find((l) => l.textContent === 'Workflow cho onClick')
+      expect(label).toBeDefined()
+      await act(async () => tab(root, 'Tạo workflow mới').click())
+      expect(project().workflows.map((w) => w.id)).toEqual(['wf1'])
+      expect(project().pages[0].components[0].events).toEqual({ onClick: 'wf1' })
+      expect(root.querySelector('.wf-editor')).not.toBeNull()
+      expect(root.querySelector('.palette-item')).toBeNull()
+    })
+
+    it('chọn workflow có sẵn trong select ghi events, bỏ chọn thì xóa events', async () => {
+      act(() => {
+        useSchemaStore.getState().load({ ...initialProject(), workflows: [{ id: 'wf1', nodes: [], edges: [] }] })
+        useSchemaStore.getState().add('p1', null, 'Button')
+      })
+      const root = await renderEditor()
+      const select = root.querySelector<HTMLSelectElement>('#event-onClick')!
+      await act(async () => setValue(select, 'wf1'))
+      expect(project().pages[0].components[0].events).toEqual({ onClick: 'wf1' })
+      await act(async () => setValue(root.querySelector<HTMLSelectElement>('#event-onClick')!, ''))
+      expect(project().pages[0].components[0].events).toBeUndefined()
+    })
+
+    it('component không có event (Text) không hiện phần workflow', async () => {
+      const root = await renderEditor()
+      act(() => {
+        useSchemaStore.getState().add('p1', null, 'Text')
+      })
+      expect(root.querySelector('#event-onClick')).toBeNull()
+    })
+
+    it('chế độ Workflow: tạo workflow, thêm node từ palette, sửa config và hiện lỗi kiểm tra', async () => {
+      const root = await renderEditor()
+      await act(async () => tab(root, 'Workflow').click())
+      await act(async () => tab(root, 'Tạo workflow').click())
+      expect(project().workflows).toHaveLength(1)
+      await act(async () => tab(root, '+ Navigate').click())
+      await act(async () => tab(root, '+ Show message').click())
+      expect(project().workflows[0].nodes.map((n) => n.type)).toEqual(['navigate', 'showMessage'])
+      expect(root.querySelector('.wf-issues')?.textContent).toContain('2 node bắt đầu')
+      expect(root.querySelector('.wf-issues')?.textContent).toContain('text')
+
+      const text = root.querySelector<HTMLInputElement>('#prop-text')!
+      await act(async () => setValue(text, 'Xin chào'))
+      expect(project().workflows[0].nodes[1].config).toMatchObject({ kind: 'success', text: 'Xin chào' })
+      await act(async () => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Xóa node')!.click())
+      expect(project().workflows[0].nodes.map((n) => n.type)).toEqual(['navigate'])
     })
   })
 })

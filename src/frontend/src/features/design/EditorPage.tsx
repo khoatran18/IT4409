@@ -12,6 +12,7 @@ import {
 import { schoolAdminSample } from '@codeflow/schema'
 import { useEffect, useState } from 'react'
 import { useSchemaStore } from '../../core/schema-store'
+import { WorkflowEditor } from '../workflow'
 import { Canvas } from './canvas/Canvas'
 import type { DropData } from './canvas/drag'
 import type { NodeDragData } from './canvas/NodeView'
@@ -41,13 +42,15 @@ export function EditorPage() {
   const move = useSchemaStore((s) => s.move)
   const load = useSchemaStore((s) => s.load)
   const [chosenPageId, setChosenPageId] = useState<string>()
-  const [mode, setMode] = useState<'design' | 'preview'>('design')
+  const [mode, setMode] = useState<'design' | 'workflow' | 'preview'>('design')
+  const [workflowId, setWorkflowId] = useState<string>()
   const [dragLabel, setDragLabel] = useState<string>()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const page = pages.find((p) => p.id === chosenPageId) ?? pages[0]
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (mode !== 'design') return
       if ((e.key !== 'Delete' && e.key !== 'Backspace') || isTyping(e.target)) return
       const { selectedId, remove } = useSchemaStore.getState()
       if (!selectedId) return
@@ -56,7 +59,12 @@ export function EditorPage() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [mode])
+
+  function openWorkflow(id: string) {
+    setWorkflowId(id)
+    setMode('workflow')
+  }
 
   function handleDragStart({ active }: DragStartEvent) {
     setDragLabel((active.data.current as { label?: string } | undefined)?.label)
@@ -92,6 +100,9 @@ export function EditorPage() {
             <button type="button" aria-pressed={mode === 'design'} onClick={() => setMode('design')}>
               Thiết kế
             </button>
+            <button type="button" aria-pressed={mode === 'workflow'} onClick={() => setMode('workflow')}>
+              Workflow
+            </button>
             <button type="button" aria-pressed={mode === 'preview'} onClick={() => setMode('preview')}>
               Xem trước
             </button>
@@ -105,13 +116,15 @@ export function EditorPage() {
             <div className="canvas">
               <PreviewPane pageId={page?.id} />
             </div>
+          ) : mode === 'workflow' ? (
+            <WorkflowEditor workflowId={workflowId} onSelectWorkflow={setWorkflowId} />
           ) : page ? (
             <Canvas pageId={page.id} />
           ) : (
             <p className="hint">Project chưa có trang nào</p>
           )}
         </div>
-        {mode === 'design' && <Properties />}
+        {mode === 'design' && <Properties onOpenWorkflow={openWorkflow} />}
       </div>
       <DragOverlay dropAnimation={null}>{dragLabel ? <div className="drag-chip">{dragLabel}</div> : null}</DragOverlay>
     </DndContext>
